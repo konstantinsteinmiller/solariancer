@@ -152,7 +152,8 @@ const buildSunCore = () => {
       const rr = baseR + wob
       const x = cx + Math.cos(a) * rr
       const y = cy + Math.sin(a) * rr
-      if (a === 0) ctx.moveTo(x, y) else ctx.lineTo(x, y)
+      if (a === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
     }
     ctx.closePath()
     ctx.stroke()
