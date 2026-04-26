@@ -11,7 +11,7 @@ import {
   BP_COMBO_THRESHOLD
 } from '@/use/useBattlePass'
 
-const STORAGE_KEY = 'sol_keeper_state_v1'
+const STORAGE_KEY = 'sol_state_v1'
 
 // ─── Combo tuning ──────────────────────────────────────────────────────────
 const COMBO_WINDOW = 5            // s — max gap between ripe feeds to keep the chain
@@ -98,6 +98,7 @@ const defaultState = (): SolKeeperState => ({
   totalMissionsCompleted: 0,
   solarClass: 0,
   lifetimeHeatAtReset: 0,
+  firstComboCelebrated: false,
   stage: 1,
   stageProgress: 0,
   preferences: {
@@ -199,12 +200,74 @@ const upgradeEffect = (id: UpgradeId): number => {
 // extends to `radius × multiplier`, so a tiny asteroid has a tiny safe-zone
 // and a gas giant has a huge one. Each Singularity Core level tightens the
 // multiplier — endgame players get finer control over big planets.
-const NO_GO_BASE = 2.5
-const NO_GO_MIN = 1.3
-const NO_GO_PER_LEVEL = 0.10
-const noGoMultiplier = computed(() =>
-  Math.max(NO_GO_MIN, NO_GO_BASE - state.value.upgrades.singularityCore * NO_GO_PER_LEVEL)
+//
+// Values are intentionally tight (≈ half the legacy 2.5/1.3/0.1 set). The
+// previous buffer made it feel impossible to place a singularity near any
+// planet, especially on phones — players couldn't pull a body into the Sun
+// because every spot near it was rejected. The new defaults keep a small
+// safety buffer beyond the surface but let the player work close in.
+const NO_GO_BASE = 1.25
+const NO_GO_MIN = 0.65
+const NO_GO_PER_LEVEL = 0.05
+const noGoMultiplier = computed(() => {
+  // Stage-1 onboarding: let the player drop the singularity right at the
+  // edge of any body so they can actually feel the "pick up and drag into
+  // the Sun" loop without the buffer fighting them. We use 1.0 (== body
+  // radius) so the tap is rejected only when it lands *inside* a body —
+  // that's still nice safety against accidentally placing a singularity
+  // dead-centre on a giant.
+  if (state.value.stage === 1) return 1.0
+  return Math.max(NO_GO_MIN, NO_GO_BASE - state.value.upgrades.singularityCore * NO_GO_PER_LEVEL)
+})
+
+// ─── Onboarding helpers ────────────────────────────────────────────────────
+//
+// All scoped to stage 1, all keyed off `totalHeatEarned` so they melt away
+// invisibly as the player gains traction. Read by the renderer (preview /
+// arrow), the physics tick (slow-time, no-fail), and the SolKeeperGame UI
+// (idle hint, deferred upgrade pulse).
+
+/** Stage-1 simulation-speed multiplier. 0.6 below 200 heat, lerps back to
+ *  1.0 by 500. Outside stage 1 (or above 500 heat in stage 1) the value is
+ *  exactly 1.0 so it has zero effect on real play. */
+const SIM_SLOW_FLOOR = 0.6
+const SIM_SLOW_BELOW = 200
+const SIM_SLOW_RAMP_UNTIL = 500
+const simSpeedMultiplier = computed(() => {
+  if (state.value.stage !== 1) return 1
+  const h = state.value.totalHeatEarned
+  if (h >= SIM_SLOW_RAMP_UNTIL) return 1
+  if (h <= SIM_SLOW_BELOW) return SIM_SLOW_FLOOR
+  const t = (h - SIM_SLOW_BELOW) / (SIM_SLOW_RAMP_UNTIL - SIM_SLOW_BELOW)
+  return SIM_SLOW_FLOOR + (1 - SIM_SLOW_FLOOR) * t
+})
+
+/** True while the no-fail respawn rule is in force. Gated on per-stage
+ *  progress (not lifetime heat) so a player who supernovas back to stage 1,
+ *  or who just lets stage 1 reset between sessions, gets the safety net
+ *  every time — not just once on the very first save. */
+const stage1NoFailActive = computed(() =>
+  state.value.stage === 1 && state.value.stageProgress < 500
 )
+
+/** True while the singularity preview ring + first-body arrow + auto-cook
+ *  asteroid spawns should be active. Same per-stage gating as the no-fail
+ *  rule — covers returning players, post-supernova restarts, and anyone
+ *  who's still in the early-curve of stage 1, not just brand-new saves. */
+const stage1HintsActive = computed(() =>
+  state.value.stage === 1 && state.value.stageProgress < 200
+)
+
+/** True while the upgrade-button bounce should be suppressed (player has
+ *  not yet completed the loop once, so the menu is meaningless to them). */
+const upgradeHintAllowed = computed(() => state.value.totalRipeFeeds >= 1)
+
+// First-combo celebration — drives a one-shot brief slow-mo + oversized
+// COMBO popup the very first time the chain crosses BP_COMBO_THRESHOLD.
+// `slowMoUntil` is a performance.now() timestamp; the renderer reads it
+// to decide whether to apply the brief slow-mo on top of simSpeed.
+const slowMoUntil = ref(0)
+const lastRipeFeedAt = ref(0)
 
 // ─── Fusion Stabilizer staircase ────────────────────────────────────────────
 // Tier 0 (lvl 1-15):  0.05/lvl  (= base "effectPerLevel")
@@ -240,8 +303,20 @@ const attractionRadius = computed(() => 1 + state.value.upgrades.attractionRadiu
 const probeCount = computed(() => (state.value.upgrades.automationProbe * upgradeEffect('automationProbe')) | 0)
 // Big Probe Station — high-tier rope drone count, max 2.
 const bigProbeCount = computed(() => state.value.upgrades.bigProbeStation | 0)
-// Zone Expansion — multiplier on Heat Zone width (1 = base ring; +20% per level)
-const heatZoneWidthBonus = computed(() => 1 + state.value.upgrades.heatShield * upgradeEffect('heatShield'))
+// Zone Expansion — multiplier on Heat Zone width (1 = base ring; +20% per level).
+//
+// Stage-1 onboarding: pin the bonus to the max level (≈3× width) so the
+// ring is huge while the player is learning, then revert to whatever
+// `heatShield` upgrades they actually own from stage 2 onward. This makes
+// it nearly impossible to *miss* the heat zone with an asteroid in the
+// first stage — they cook even on sloppy throws — without permanently
+// trivialising the upgrade later.
+const HEAT_SHIELD_DEF = UPGRADES.find(u => u.id === 'heatShield')!
+const HEAT_ZONE_MAX_BONUS = 1 + HEAT_SHIELD_DEF.maxLevel * HEAT_SHIELD_DEF.effectPerLevel
+const heatZoneWidthBonus = computed(() => {
+  if (state.value.stage === 1) return HEAT_ZONE_MAX_BONUS
+  return 1 + state.value.upgrades.heatShield * upgradeEffect('heatShield')
+})
 // Mass Magnet — integer level used as range/strength multiplier for asteroid snap-merge
 const massMagnetLevel = computed(() => (state.value.upgrades.orbitalCapacity * upgradeEffect('orbitalCapacity')) | 0)
 // Surface Tension — number of free bounces a body gets off the Sun before being consumed
@@ -484,6 +559,21 @@ const registerRipeFeed = (): { combo: number; multiplier: number; rolledThreshol
   comboBuffUntil.value = now + COMBO_BUFF_DURATION * 1000
 
   state.value.totalRipeFeeds += 1
+  lastRipeFeedAt.value = now
+  // First-combo onboarding hit — when the chain crosses the 3-body
+  // threshold for the very first time in this player's lifetime, queue a
+  // ~600ms slow-mo on top of any active stage-1 slow-time. The renderer
+  // sees `slowMoUntil > now` and dilates dt accordingly; the popup is
+  // emitted by physicsStep where the ripe-feed itself happens (so it
+  // appears at the body's position, not at a fixed coord).
+  if (
+    !state.value.firstComboCelebrated
+    && prevCombo < BP_COMBO_THRESHOLD
+    && comboCount.value >= BP_COMBO_THRESHOLD
+  ) {
+    state.value.firstComboCelebrated = true
+    slowMoUntil.value = now + 600
+  }
   // Trail palette unlocks tied to ripe-feed milestones — pure cosmetic flex
   if (state.value.totalRipeFeeds >= 50) ensureTrailUnlocked('rainbow')
   if (state.value.totalRipeFeeds >= 200) ensureTrailUnlocked('aurora')
@@ -598,6 +688,13 @@ export default function useSolKeeper() {
     registerRipeFeed,
     registerCometCaught,
     registerBlackHoleSurvived,
-    registerMissionCompleted
+    registerMissionCompleted,
+    // Onboarding (stage-1 helpers)
+    simSpeedMultiplier,
+    stage1NoFailActive,
+    stage1HintsActive,
+    upgradeHintAllowed,
+    slowMoUntil,
+    lastRipeFeedAt
   }
 }

@@ -40,7 +40,7 @@ export const BP_COMBO_THRESHOLD = 3
  *  reframed as the rarer prestige currency. */
 export const BP_MATTER_STAGES = new Set<number>([10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
 
-const STORAGE_KEY = 'sol_keeper_battle_pass_v1'
+const STORAGE_KEY = 'sol_battle_pass_v1'
 
 // ─── State ──────────────────────────────────────────────────────────────────
 

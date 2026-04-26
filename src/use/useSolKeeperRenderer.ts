@@ -389,7 +389,8 @@ export const renderScene = (canvas: HTMLCanvasElement, ctx: CanvasRenderingConte
     lastHeight = H
   }
   // Rebuild sun core when the streak-derived skin tier changes.
-  const desiredTier = useSolKeeper().sunSkinTier.value
+  const sk = useSolKeeper()
+  const desiredTier = sk.sunSkinTier.value
   if (!sunCoreLayer || sunCoreLayerTier !== desiredTier) {
     sunCoreLayer = buildSunCore(desiredTier)
     sunCoreLayerTier = desiredTier
@@ -548,6 +549,20 @@ export const renderScene = (canvas: HTMLCanvasElement, ctx: CanvasRenderingConte
   if (singularityActive.value) {
     const range = useGravityPhysics().singularityRange.value
     drawSingularity(ctx, singularityX.value, singularityY.value, range, time)
+    // Stage-1 preview — show the singularity's reach and a thin pull
+    // hint to the nearest in-range body so the player sees cause-and-
+    // effect of where they tapped. Hidden once they've made a ripe-feed.
+    if (sk.stage1HintsActive.value) {
+      drawSingularityPreview(ctx, singularityX.value, singularityY.value, range, time)
+    }
+  }
+
+  // Stage-1 ghost arrow — pulses from the nearest body NOT in the heat
+  // zone, pointing at the heat-zone mid radius. Teaches "drag bodies
+  // INTO the ring" without a tutorial bubble. Fades the moment the
+  // player has cooked their first ripe.
+  if (sk.stage1HintsActive.value) {
+    drawHeatZoneArrowHint(ctx, cx, cy, zoneInner, zoneOuter, time)
   }
 
   // Solar flare red wash — applied near the end so it doesn't recolor sprites
@@ -1136,6 +1151,99 @@ const drawSingularity = (ctx: CanvasRenderingContext2D, x: number, y: number, ra
   }
   ctx.beginPath()
   ctx.arc(x, y, 7 + Math.sin(time * 8) * 1.5, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.restore()
+}
+
+// ─── Onboarding overlays ──────────────────────────────────────────────────
+//
+// Both fade out the moment the player has cooked their first ripe — they
+// only render while `sk.stage1HintsActive.value` is true.
+
+const drawSingularityPreview = (
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, range: number, time: number
+) => {
+  // Brighter dashed reach ring than the default — the existing
+  // `drawSingularity` ring is intentionally subtle for veterans, but new
+  // players need to see the radius clearly. Same colour family so it
+  // reads as part of the same UI layer.
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  ctx.strokeStyle = `rgba(170, 110, 255, ${0.45 + 0.18 * Math.sin(time * 3.2)})`
+  ctx.lineWidth = 2
+  ctx.setLineDash([8, 6])
+  ctx.lineDashOffset = -time * 28
+  ctx.beginPath()
+  ctx.arc(x, y, range, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.setLineDash([])
+  ctx.restore()
+}
+
+const drawHeatZoneArrowHint = (
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number,
+  zoneInner: number, zoneOuter: number,
+  time: number
+) => {
+  // Pick the most useful body to point at: the nearest non-dead body
+  // that is OUTSIDE the heat zone (so the arrow has something to teach).
+  // If everything's already in the zone, no arrow — the player is doing
+  // the right thing and we don't want to nag.
+  let target: typeof bodies.value[number] | null = null
+  let bestDist = Infinity
+  for (const b of bodies.value) {
+    if (b.dead) continue
+    if (b.isComet) continue
+    const d = Math.hypot(b.x - cx, b.y - cy)
+    if (d >= zoneInner && d <= zoneOuter) continue
+    // Prefer bodies further from the sun (hint about pulling things IN).
+    const score = Math.abs(d - (zoneInner + zoneOuter) / 2)
+    if (score < bestDist) {
+      bestDist = score
+      target = b
+    }
+  }
+  if (!target) return
+
+  const ringMid = (zoneInner + zoneOuter) / 2
+  const dx = cx - target.x
+  const dy = cy - target.y
+  const d = Math.hypot(dx, dy)
+  if (d < 1) return
+  const nx = dx / d
+  const ny = dy / d
+
+  // The arrow runs from a point just outside the body's silhouette toward
+  // the heat-zone mid radius. Pulses along its length so the eye tracks.
+  const startX = target.x + nx * (target.radius + 6)
+  const startY = target.y + ny * (target.radius + 6)
+  const endX = cx - nx * ringMid
+  const endY = cy - ny * ringMid
+
+  const pulse = 0.55 + 0.45 * Math.sin(time * 4)
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  ctx.strokeStyle = `rgba(255, 200, 90, ${0.55 * pulse})`
+  ctx.lineWidth = 3
+  ctx.setLineDash([12, 8])
+  ctx.lineDashOffset = -time * 60
+  ctx.beginPath()
+  ctx.moveTo(startX, startY)
+  ctx.lineTo(endX, endY)
+  ctx.stroke()
+  ctx.setLineDash([])
+  // Arrowhead at the heat-zone end so the direction reads instantly.
+  const headSize = 10
+  const px = -ny // perpendicular to the radial
+  const py = nx
+  ctx.fillStyle = `rgba(255, 220, 120, ${0.85 * pulse})`
+  ctx.beginPath()
+  ctx.moveTo(endX, endY)
+  ctx.lineTo(endX + nx * headSize + px * headSize * 0.6, endY + ny * headSize + py * headSize * 0.6)
+  ctx.lineTo(endX + nx * headSize - px * headSize * 0.6, endY + ny * headSize - py * headSize * 0.6)
+  ctx.closePath()
   ctx.fill()
   ctx.restore()
 }

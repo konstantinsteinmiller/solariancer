@@ -106,6 +106,12 @@ onMounted(() => {
   if (canvasRef.value) {
     stopRender = startRenderLoop(canvasRef.value)
   }
+  // Expose live game state on window so e2e tests (and devtools spelunking)
+  // can introspect physics + state without prop-drilling. No-op for normal
+  // runs because nothing reads these in production code.
+  ;(window as any).__solPhysics = physics
+  ;(window as any).__solSk = sk
+  ;(window as any).__solTutorial = tutorial
   scheduleBottomMeasure()
   // Browsers require a user gesture to start audio; arm music on first interaction.
   const armMusic = () => {
@@ -176,6 +182,35 @@ const openAchievements = () => {
 const showStarterHint = computed(() =>
   !tutorial.active.value && sk.state.value.tutorialSeen && sk.state.value.totalHeatEarned < 10
 )
+
+// ─── Stage-1 idle hint ─────────────────────────────────────────────────────
+//
+// If the player is on stage 1 with zero ripe feeds and the wall clock has
+// drifted 30 s past either their last ripe feed (or, if they've never made
+// one, the moment they mounted into the game), pulse the replay-tutorial
+// `?` button. Drives a `Date.now()` poll instead of a watch because the
+// underlying signal is wall time, not a reactive value.
+const NOW_TICK_MS = 1000
+const STAGE1_IDLE_HINT_AFTER_S = 30
+const mountedAt = ref(performance.now())
+const nowTick = ref(performance.now())
+let nowTickHandle: number | null = null
+onMounted(() => {
+  nowTickHandle = window.setInterval(() => {
+    nowTick.value = performance.now()
+  }, NOW_TICK_MS)
+})
+onUnmounted(() => {
+  if (nowTickHandle !== null) clearInterval(nowTickHandle)
+})
+
+const stage1IdleHintActive = computed(() => {
+  if (tutorial.active.value) return false
+  if (sk.state.value.stage !== 1) return false
+  if (sk.state.value.totalRipeFeeds > 0) return false
+  const lastEvent = sk.lastRipeFeedAt.value > 0 ? sk.lastRipeFeedAt.value : mountedAt.value
+  return (nowTick.value - lastEvent) / 1000 >= STAGE1_IDLE_HINT_AFTER_S
+})
 </script>
 
 <template lang="pug">
@@ -241,6 +276,7 @@ const showStarterHint = computed(() =>
         button.relative.inline-block.cursor-pointer(
           @click="replayTutorial"
           class="hover:scale-105 active:scale-95 transition-transform"
+          :class="{ 'attention-bounce': stage1IdleHintActive }"
           aria-label="Replay tutorial"
           title="Replay tutorial"
         )
@@ -251,11 +287,13 @@ const showStarterHint = computed(() =>
             )
               span.text-sky-200.text-2xl.font-black.leading-none(class="game-text") ?
         //- Upgrades — universally readable gears icon. Square button matches
-        //- the achievements / replay-tutorial buttons next to it.
+        //- the achievements / replay-tutorial buttons next to it. Bounce
+        //- only after the player has cooked their first ripe so the menu
+        //- has context — pushing them at it before that confuses the loop.
         button.relative.inline-block.cursor-pointer(
           @click="openUpgrades"
           class="hover:scale-105 active:scale-95 transition-transform"
-          :class="{ 'attention-bounce': showStarterHint || (sk.state.value.heat >= 60) }"
+          :class="{ 'attention-bounce': sk.upgradeHintAllowed.value && (showStarterHint || sk.state.value.heat >= 60) }"
           aria-label="Upgrades"
           title="Upgrades"
         )

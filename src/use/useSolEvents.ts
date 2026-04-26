@@ -192,7 +192,22 @@ const tick = (dt: number) => {
   const sk = useSolKeeper()
 
   // ── Flare scheduler ──────────────────────────────────────────────────────
-  if (flareActive.value) {
+  // Stage 1 is the onboarding sandbox — the red-wash flare effect is
+  // confusing alongside the other "what's happening?" mechanics, and
+  // its ×4 heat boost destabilises the carefully tuned early heat curve.
+  // Tear down any in-flight flare and pause the cooldown so a flare
+  // can't pop the moment the player clears stage 1 either.
+  if (sk.state.value.stage === 1) {
+    if (flareActive.value || flareWarning.value) {
+      flareActive.value = false
+      flareWarning.value = false
+      flareTimeLeft.value = 0
+      eventFlareMultiplier.value = 1
+    }
+    // Hold the cooldown at a small positive value so the very next
+    // tick after stage advance doesn't immediately roll a flare.
+    flareCooldown.value = Math.max(flareCooldown.value, 5)
+  } else if (flareActive.value) {
     flareTimeLeft.value -= dt
     if (flareTimeLeft.value <= 0) endFlare()
   } else if (flareWarning.value) {

@@ -13,6 +13,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
-    setupFiles: ['./tests/save/setup.ts']
+    setupFiles: ['./tests/save/setup.ts'],
+    // Playwright owns tests/e2e — vitest must not try to import them.
+    exclude: ['**/node_modules/**', '**/dist/**', 'tests/e2e/**']
   }
 })

@@ -258,8 +258,39 @@ const kindParams = (kind: BodyKind): KindParams => {
 
 const randRange = (a: number, b: number) => a + Math.random() * (b - a)
 
+// ─── Stage-1 onboarding spawn state ───────────────────────────────────────
+//
+// - `stage1AutoCookSpawned` counts how many edge-spawn asteroids have been
+//   given the auto-cook orbital trajectory. The counter resets in
+//   initWorld() (= start of a fresh session) so a returning player still
+//   gets a hand-off-the-wheel intro on the first few bodies.
+// - `stage1AutoCookBaseAngle` and `stage1AutoCookSign` lock the three
+//   intro asteroids to the SAME orbital direction with 120° angular
+//   spacing. Without this, random CW / CCW + random θ would put bodies
+//   on intersecting orbits — they collide (restitution 0.7 = 30 %
+//   energy loss per hit) and decay straight into the sun. Same period +
+//   constant angular separation means they share an orbital lane and
+//   never catch each other.
+// - `pendingRespawns` is incremented in physicsStep when a body dies from
+//   the sun/eject under the no-fail rule. driveSpawning drains the queue,
+//   one body per tick, so the screen briefly empties before refilling —
+//   reads as natural "another asteroid drifts in" rather than instant
+//   teleport.
+const STAGE1_AUTOCOOK_COUNT = 3
+let stage1AutoCookSpawned = 0
+let stage1AutoCookBaseAngle = 0
+let stage1AutoCookSign: 1 | -1 = 1
+let pendingRespawns = 0
+
 const spawnBody = (kind: BodyKind, opts?: { fromEdge?: boolean; x?: number; y?: number }) => {
   if (bodies.value.length >= MAX_BODIES) return null
+  // Stage-1 onboarding cap — see currentBodyCap() / stage1SmallBodyOnly().
+  // Applied here too so the seed ring in initWorld() and any external
+  // `spawnAt` calls also respect the smaller viewport ceiling.
+  if (sk.state.value.stage === 1) {
+    if (bodies.value.length >= currentBodyCap()) return null
+    if (stage1SmallBodyOnly() && kind !== 'asteroid') return null
+  }
   const params = kindParams(kind)
   // Scale body radius down on small viewports so a gas giant doesn't fill
   // half a phone screen. Mass stays unchanged — it's a balance value, not a
@@ -281,36 +312,106 @@ const spawnBody = (kind: BodyKind, opts?: { fromEdge?: boolean; x?: number; y?: 
   let vy = 0
 
   if (opts?.fromEdge ?? !opts) {
-    // Spawn on a random edge with a velocity loosely angled toward the
-    // gravity well so things drift through naturally.
     const W = worldWidth.value
     const H = worldHeight.value
     const cx = W / 2
     const cy = H / 2
-    const side = Math.floor(Math.random() * 4)
-    if (side === 0) {
-      x = -WORLD_PADDING * 0.3
-      y = randRange(0, H)
-    } else if (side === 1) {
-      x = W + WORLD_PADDING * 0.3
-      y = randRange(0, H)
-    } else if (side === 2) {
-      x = randRange(0, W)
-      y = -WORLD_PADDING * 0.3
+
+    // Stage-1 auto-cook trajectory — for the first STAGE1_AUTOCOOK_COUNT
+    // edge spawns of an asteroid while the player has 0 ripe feeds, plant
+    // the body in a slightly elliptical orbit through the heat zone so it
+    // ripens itself. This carries the player through the "wait, what is
+    // ripening?" beat before they ever have to control anything; the
+    // ripe body still has to be dragged into the sun, which is the
+    // skill they actually need to learn.
+    const useAutoCook =
+      sk.stage1HintsActive.value
+      && kind === 'asteroid'
+      && stage1AutoCookSpawned < STAGE1_AUTOCOOK_COUNT
+    if (useAutoCook) {
+      stage1AutoCookSpawned++
+      const ws = worldScale.value
+      const ws3 = ws * ws * ws
+      // Aim for the heat-zone mid radius as our orbital perigee — the
+      // body should swing INTO the zone, cook, slingshot back out, and
+      // repeat.  Apogee is set just outside the viewport on a radial
+      // line through (cx, cy) so the body visually drifts in from the
+      // edge.
+      //
+      // Match the gravity model in physicsStep:
+      //   gAccel = μ / r² with μ = G · SUN_MASS · ws³ / sqrt(mass).
+      // For an ellipse with apogee r_a and perigee r_p, the velocity at
+      // apogee (purely tangential) is
+      //   v_a = sqrt( μ · 2·r_p / ( r_a · (r_a + r_p) ) ).
+      const ringMid = (computeZoneInner() + computeZoneOuter()) / 2
+      const massFactor = Math.max(1, Math.sqrt(params.mass))
+      const mu = (G * SUN_MASS * ws3) / massFactor
+
+      // Spread the three intro asteroids 120° apart on the SAME orbital
+      // direction, jittered slightly so they don't look mechanically
+      // perfect. Same period + fixed angular separation = no inter-body
+      // collisions and no energy decay into the sun.
+      const theta =
+        stage1AutoCookBaseAngle
+        + (stage1AutoCookSpawned - 1) * (Math.PI * 2 / 3)
+        + (Math.random() - 0.5) * 0.25
+      const cosT = Math.cos(theta)
+      const sinT = Math.sin(theta)
+      const margin = WORLD_PADDING * 0.5
+      const sxOut = cosT > 0
+        ? (W + margin - cx) / cosT
+        : cosT < 0
+          ? (-margin - cx) / cosT
+          : Infinity
+      const syOut = sinT > 0
+        ? (H + margin - cy) / sinT
+        : sinT < 0
+          ? (-margin - cy) / sinT
+          : Infinity
+      // Distance from sun at which the radial line first exits the
+      // viewport. Clamp the apogee to at most ~1.6× ringMid so the
+      // ellipse stays tight enough that the body returns to the heat
+      // zone every few seconds — on a portrait phone the vertical exit
+      // can be huge otherwise.
+      const exitR = Math.min(sxOut, syOut)
+      const r_a = Math.min(exitR + 20, ringMid * 1.6)
+      const r_p = ringMid
+      const vApo = Math.sqrt((mu * 2 * r_p) / (r_a * (r_a + r_p)))
+
+      x = cx + cosT * r_a
+      y = cy + sinT * r_a
+      // All three intro asteroids share the same direction so they ride
+      // the same orbital lane and never collide with each other.
+      vx = -sinT * vApo * stage1AutoCookSign
+      vy = cosT * vApo * stage1AutoCookSign
     } else {
-      x = randRange(0, W)
-      y = H + WORLD_PADDING * 0.3
+      // Default: spawn on a random edge with a velocity loosely angled
+      // toward the gravity well so things drift through naturally.
+      const side = Math.floor(Math.random() * 4)
+      if (side === 0) {
+        x = -WORLD_PADDING * 0.3
+        y = randRange(0, H)
+      } else if (side === 1) {
+        x = W + WORLD_PADDING * 0.3
+        y = randRange(0, H)
+      } else if (side === 2) {
+        x = randRange(0, W)
+        y = -WORLD_PADDING * 0.3
+      } else {
+        x = randRange(0, W)
+        y = H + WORLD_PADDING * 0.3
+      }
+      const dx = cx - x
+      const dy = cy - y
+      const dist = Math.hypot(dx, dy)
+      // Drift speed scales linearly with worldScale so bodies cover the same
+      // fraction-of-viewport per second across all device sizes.
+      const speed = randRange(40, 95) * worldScale.value
+      // Tangential component for non-radial trajectories — adds drift
+      const tangent = randRange(-0.6, 0.6)
+      vx = (dx / dist) * speed + (-dy / dist) * speed * tangent
+      vy = (dy / dist) * speed + (dx / dist) * speed * tangent
     }
-    const dx = cx - x
-    const dy = cy - y
-    const dist = Math.hypot(dx, dy)
-    // Drift speed scales linearly with worldScale so bodies cover the same
-    // fraction-of-viewport per second across all device sizes.
-    const speed = randRange(40, 95) * worldScale.value
-    // Tangential component for non-radial trajectories — adds drift
-    const tangent = randRange(-0.6, 0.6)
-    vx = (dx / dist) * speed + (-dy / dist) * speed * tangent
-    vy = (dy / dist) * speed + (dx / dist) * speed * tangent
   }
 
   const body: CelestialBody = {
@@ -588,13 +689,32 @@ const physicsStep = (dt: number) => {
       spawnPopup(b.x, b.y, popupText, popupColor, isRipe ? 28 : 18)
       triggerExplosion(b.x, b.y, 30, b.hue, isRipe ? 1.4 : 0.6)
       if (isRipe) {
+        const wasFirstCombo = !sk.state.value.firstComboCelebrated
         const result = sk.registerRipeFeed()
         if (result.rolledThreshold) {
-          spawnPopup(b.x, b.y - 32, `COMBO ×${result.rolledThreshold}!`, '#ffe8a0', 28)
+          // First-time crossing of the 3-combo threshold gets the loud
+          // version: oversized text + extra screen shake + flash. The
+          // brief slow-mo itself is set inside registerRipeFeed (it has
+          // to flip the persisted flag in the same call). Subsequent
+          // combo crossings use the regular popup.
+          if (wasFirstCombo && result.rolledThreshold >= 3) {
+            spawnPopup(b.x, b.y - 32, `COMBO ×${result.rolledThreshold}!`, '#ffe8a0', 56)
+            spawnPopup(b.x, b.y - 80, '+5 BP XP', '#ffd14a', 30)
+            screenShake.value = Math.max(screenShake.value, 14)
+            flashIntensity.value = Math.min(1, flashIntensity.value + 0.4)
+          } else {
+            spawnPopup(b.x, b.y - 32, `COMBO ×${result.rolledThreshold}!`, '#ffe8a0', 28)
+          }
         }
       }
       b.dead = true
       b.deathReason = 'sun'
+      // No-fail respawn: a raw drop into the sun while the rule is active
+      // shouldn't strip the player of every body on screen — queue a
+      // replacement so the next asteroid drifts in shortly after.
+      if (!isRipe && sk.stage1NoFailActive.value && b.kind === 'asteroid') {
+        pendingRespawns++
+      }
       try {
         // Big ripe payouts get a pitched-down "thud" — half-octave below for
         // award > 1000, quarter-octave for moderate ripe. Raw stays normal.
@@ -1037,6 +1157,12 @@ const physicsStep = (dt: number) => {
     if (b.x < -WORLD_PADDING || b.x > maxX || b.y < -WORLD_PADDING || b.y > maxY) {
       b.dead = true
       b.deathReason = 'eject'
+      // No-fail respawn: an early-game asteroid that flies off-screen
+      // (player whiffed a tug) shouldn't permanently subtract from the
+      // already-tiny stage-1 body count — queue a replacement.
+      if (sk.stage1NoFailActive.value && b.kind === 'asteroid') {
+        pendingRespawns++
+      }
       continue
     }
 
@@ -1192,11 +1318,73 @@ const physicsStep = (dt: number) => {
 
 const SPAWN_INTERVAL = 1.3
 let spawnAccum = 0
+
+// ─── Stage-1 onboarding rules ─────────────────────────────────────────────
+//
+// The first stage is a dedicated tutorial sandbox: until the player has
+// internalised the singularity / heat-zone loop we strip the scene right
+// down so they aren't shattering planets they can't yet steer.
+//
+//   • Spawn pool clamps to 'asteroid' below STAGE1_LARGE_BODY_PROGRESS —
+//     no rocky / ice / gas / jewel can appear, so there's nothing big
+//     enough to fragment the asteroid stream when bumped.
+//   • On-viewport body cap ramps from 3 → 5 → MAX_BODIES as the player
+//     earns heat IN THIS STAGE. The ramp gives them a few quiet seconds
+//     at a time to experiment with controls instead of fighting a screen
+//     full of debris.
+//
+// All thresholds use `state.stageProgress` (heat earned in the *current*
+// stage 1 episode) instead of lifetime heat — so a returning player who
+// supernovas back to stage 1 gets the same calm onboarding curve every
+// time, not just on the first save. Once the heat goal lifts the player
+// into stage 2 the spawner returns to its full distribution.
+const STAGE1_SMALL_BODY_PROGRESS = 700
+const STAGE1_CAP_BUMP_PROGRESS = 500
+const STAGE1_BODY_CAP_LOW = 3
+const STAGE1_BODY_CAP_HIGH = 5
+
+/** On-viewport body limit. Returns the global MAX_BODIES outside stage 1. */
+const currentBodyCap = (): number => {
+  if (sk.state.value.stage !== 1) return MAX_BODIES
+  return sk.state.value.stageProgress < STAGE1_CAP_BUMP_PROGRESS
+    ? STAGE1_BODY_CAP_LOW
+    : STAGE1_BODY_CAP_HIGH
+}
+
+/** True while the stage-1 small-body restriction is in force. */
+const stage1SmallBodyOnly = (): boolean =>
+  sk.state.value.stage === 1 && sk.state.value.stageProgress < STAGE1_SMALL_BODY_PROGRESS
+
 const driveSpawning = (dt: number) => {
   if (tutorialMode.value) return
+  // Whenever a fresh stage-1 episode begins (no bodies on screen +
+  // hints active), reseed the auto-cook orbital lane so the next 3
+  // edge spawns get the on-rails trajectory. Without this reset, a
+  // returning player who's already burned their counter in a previous
+  // session would never see auto-cook again.
+  if (
+    sk.stage1HintsActive.value
+    && bodies.value.length === 0
+    && stage1AutoCookSpawned >= STAGE1_AUTOCOOK_COUNT
+  ) {
+    stage1AutoCookSpawned = 0
+    stage1AutoCookBaseAngle = Math.random() * Math.PI * 2
+    stage1AutoCookSign = Math.random() < 0.5 ? 1 : -1
+  }
+  // No-fail respawn drain — one body per spawner tick. Honours the
+  // stage-1 cap because spawnBody() does that check itself; if the cap
+  // is full the queued respawn just retries on the next interval.
+  if (pendingRespawns > 0 && bodies.value.length < currentBodyCap()) {
+    if (spawnBody('asteroid') !== null) pendingRespawns--
+  }
   spawnAccum += dt
   if (spawnAccum >= SPAWN_INTERVAL) {
     spawnAccum = 0
+    if (bodies.value.length >= currentBodyCap()) return
+    if (stage1SmallBodyOnly()) {
+      spawnBody('asteroid')
+      return
+    }
     const magnetTilt = Math.min(0.25, sk.massMagnetLevel.value * 0.05)
     const r = Math.random()
     let kind: BodyKind = 'asteroid'
@@ -1219,6 +1407,15 @@ const initWorld = (w: number, h: number) => {
   popups.value.length = 0
   spawnAccum = 0
   heatTickAccum = 0
+  // Reset onboarding spawn counters so a fresh resize / re-mount still
+  // gives a returning player the auto-cook intro for the first asteroids
+  // they see this session. Reseed the shared orbital lane (base angle +
+  // CW/CCW) so consecutive sessions feel fresh while the three spawns
+  // within a session stay coherent.
+  stage1AutoCookSpawned = 0
+  stage1AutoCookBaseAngle = Math.random() * Math.PI * 2
+  stage1AutoCookSign = Math.random() < 0.5 ? 1 : -1
+  pendingRespawns = 0
   // Seed scene with a ring of asteroids drifting in (skipped during tutorial)
   if (!tutorialMode.value) {
     for (let i = 0; i < 5; i++) spawnBody('asteroid')
@@ -1249,11 +1446,28 @@ const spawnAt = (
   return body
 }
 
+// One-shot slow-mo target: the first 3+ combo plays a quick 600ms
+// dilation on top of any active stage-1 slow-time. Reads slowMoUntil from
+// useSolKeeper; the SOLO_MO_FACTOR was chosen to feel "punctuation" but
+// not lose responsiveness — too low and the input lag becomes obvious.
+const SLOW_MO_FACTOR = 0.4
+
 const tick = (dt: number) => {
-  const clamped = Math.min(0.05, dt) // clamp big frame jumps
+  // Clamp big frame jumps so a tab-return doesn't fire 200 catch-up steps.
+  let scaled = Math.min(0.05, dt) * sk.simSpeedMultiplier.value
+  // Brief one-shot slow-mo (e.g. first-combo celebration). Stacks
+  // multiplicatively with the stage-1 slow-time.
+  if (performance.now() < sk.slowMoUntil.value) {
+    scaled *= SLOW_MO_FACTOR
+  }
   try {
-    physicsStep(clamped)
-    driveSpawning(clamped)
+    physicsStep(scaled)
+    // The spawner ticks on REAL dt — we don't want slow-time to also
+    // lengthen the SPAWN_INTERVAL, otherwise the player waits longer
+    // between asteroids exactly when we're trying to make the early game
+    // feel calm. (Calm should mean "things move slower," not "nothing
+    // happens.")
+    driveSpawning(Math.min(0.05, dt))
   } catch (e) {
     console.error('[sol-keeper physics]', e)
   }
@@ -1352,6 +1566,7 @@ export default function useGravityPhysics() {
     initWorld,
     clearWorld,
     spawnAt,
+    spawnBody,
     tick,
     setSingularity,
     updateSingularity,

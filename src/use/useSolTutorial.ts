@@ -118,7 +118,15 @@ const end = () => {
     tutorialBody = null
     tutorialMode.value = false
     sk.markTutorialSeen()
-    for (let i = 0; i < 5; i++) physics.spawnAt('asteroid', Math.random() * 200, Math.random() * 200)
+    // Hand the player off into the live game using the same onboarding
+    // path a fresh save sees — `spawnBody('asteroid')` with no opts goes
+    // through the `fromEdge` branch, which (because the player is on
+    // stage 1 with 0 ripe feeds) plants the first STAGE1_AUTOCOOK_COUNT
+    // asteroids on the auto-cook orbit. Combined with the simSpeedMultiplier
+    // (still 0.6× while heat < 200), they see the loop demonstrate
+    // itself one more time before they have to control it. The cap at
+    // currentBodyCap() means only ~3 actually land here — extras drop.
+    for (let i = 0; i < 5; i++) physics.spawnBody('asteroid')
     sk.sessionHeat.value = 0
   } else {
     // Advanced is a card-only tutorial layered over normal play. Just dismiss.

@@ -161,7 +161,8 @@
       "Bash(timeout 12 pnpm vite --port 5194)",
       "Bash(timeout 14 pnpm vite --port 5195)",
       "Bash(pnpm vite *)",
-      "Bash(echo \"exit: $?\")"
+      "Bash(echo \"exit: $?\")",
+      "Bash(npx playwright *)"
     ]
   },
   "defaultMode": "auto"

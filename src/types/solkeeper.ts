@@ -141,6 +141,10 @@ export interface SolKeeperState {
   solarClass: number
   /** Lifetime heat earned at the moment of the most recent prestige. */
   lifetimeHeatAtReset: number
+  /** True once the player has triggered (and seen) their first 3+ combo
+   *  celebration. Stops the oversized "+50 BP COMBO!" overlay from firing
+   *  again after the onboarding moment is over. */
+  firstComboCelebrated: boolean
   /** Current stage number (1+). Each stage clears at STAGE_HEAT_GOAL heat earned. */
   stage: number
   /** Heat earned toward the current stage (resets to overflow on stage advance). */
