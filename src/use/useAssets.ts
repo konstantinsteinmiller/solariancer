@@ -165,10 +165,10 @@ const STATIC_IMAGES = [
 const HIGH_RES_BG = 'images/bg/bg_1280x720.webp'
 
 const VFX_ASSETS = [
-  'images/vfx/big-spark_1280x256.webp',
-  'images/vfx/dark-smoke_1280x128.webp',
-  'images/vfx/earth-rip-decal_138x138.webp',
-  'images/vfx/explosion_2080x160.webp'
+  // 'images/vfx/big-spark_1280x256.webp',
+  // 'images/vfx/dark-smoke_1280x128.webp',
+  // 'images/vfx/earth-rip-decal_138x138.webp',
+  // 'images/vfx/explosion_2080x160.webp'
 ]
 
 const SOUND_ASSETS = [
@@ -189,9 +189,9 @@ const SOUND_ASSETS = [
 // Kept for reference — music is streamed on demand from SpinnerArena, not preloaded.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const MUSIC_ASSETS = [
-  'audio/music/battle-1.ogg',
-  'audio/music/battle-2.ogg',
-  'audio/music/battle-3.ogg'
+  // 'audio/music/battle-1.ogg',
+  // 'audio/music/battle-2.ogg',
+  // 'audio/music/battle-3.ogg'
 ]
 
 /**
@@ -309,8 +309,8 @@ export default () => {
   const preloadAssets = async () => {
     if (areAllAssetsLoaded.value) return
 
-    const criticalSkinIds = getCriticalSkinIds()
-    const criticalSkinPaths = [...criticalSkinIds].map(id => modelImgPath(id))
+    // const criticalSkinIds = getCriticalSkinIds()
+    // const criticalSkinPaths = [...criticalSkinIds].map(id => modelImgPath(id))
 
     // Splash-critical tier only: UI chrome + the skins rendered on first
     // paint. SFX and VFX spritesheets are kicked off as a background
@@ -318,7 +318,7 @@ export default () => {
     // actually see something.
     const criticalAssets: AssetEntry[] = [
       ...STATIC_IMAGES.map(src => ({ src: prependBaseUrl(src), type: 'image' as const })),
-      ...criticalSkinPaths.map(src => ({ src, type: 'image' as const }))
+      // ...criticalSkinPaths.map(src => ({ src, type: 'image' as const }))
     ]
 
     let loadedCount = 0

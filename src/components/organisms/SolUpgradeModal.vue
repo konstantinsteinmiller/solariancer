@@ -196,65 +196,65 @@ const close = () => emit('update:modelValue', false)
       //- they're sm: by width too). Rows stay full-width on portrait phones.
       div.grid.gap-2(class="grid-cols-1 sm:grid-cols-2")
         div.relative.flex.items-center.gap-2.rounded-xl.border-2.p-2(
-        v-for="u in view"
-        :key="u.id"
-        class="bg-gradient-to-b from-[#172238] to-[#0c1424] border-[#0f1a30]"
+          v-for="u in view"
+          :key="u.id"
+          class="bg-gradient-to-b from-[#172238] to-[#0c1424] border-[#0f1a30]"
         )
           //- Icon — h-10 (was h-12) so the description has more room in the
           //- 2-col grid layout. Big Probe Station's long description used to
           //- wrap to 10+ lines at the old size.
           div.relative.h-10.w-10.flex.shrink-0.items-center.justify-center
-          div.absolute.inset-0.rounded-full(
-            :style="{ background: `radial-gradient(circle at 30% 30%, ${u.iconColors[0]}, ${u.iconColors[1]})` }"
-            style="box-shadow: 0 0 14px rgba(120,140,255,0.45), inset 2px 2px 5px rgba(255,255,255,0.5)"
-          )
+            div.absolute.inset-0.rounded-full(
+              :style="{ background: `radial-gradient(circle at 30% 30%, ${u.iconColors[0]}, ${u.iconColors[1]})` }"
+              style="box-shadow: 0 0 14px rgba(120,140,255,0.45), inset 2px 2px 5px rgba(255,255,255,0.5)"
+            )
             span.relative.font-black.text-white(class="game-text text-base") {{ state.upgrades[u.id] }}
-        //- Body
+          //- Body
           div.flex-1.text-left.text-white(class="leading-tight min-w-0")
-          div.flex.items-baseline.gap-2.flex-wrap
-            span.font-black.uppercase.tracking-wide(class="game-text text-xs sm:text-sm") {{ u.title }}
-            span.text-slate-300(class="text-[10px]") lvl {{ u.level }}/{{ u.maxLabel }}
+            div.flex.items-baseline.gap-2.flex-wrap
+              span.font-black.uppercase.tracking-wide(class="game-text text-xs sm:text-sm") {{ u.title }}
+              span.text-slate-300(class="text-[10px]") lvl {{ u.level }}/{{ u.maxLabel }}
             div.text-slate-300(class="leading-snug text-[10px] sm:text-[11px]") {{ u.description }}
             div.font-bold.text-amber-300(class="text-[10px] sm:text-[11px] mt-0.5") {{ u.effect }}
-        //- Buy / Maxed
-        div.shrink-0
-          template(v-if="isUpgradeMaxed(u.id)")
-            div.rounded-lg.border.border-emerald-700.bg-emerald-900.px-3.py-2.text-emerald-200.text-xs.font-black.uppercase MAX
-          template(v-else)
-            FButton(
-              :is-disabled="!canAffordUpgrade(u.id)"
-              size="sm"
-              @click="buyUpgrade(u.id)"
-            )
-              //- Hybrid cost (Big Probe Station): stack the two currencies
-              //- vertically so the button stays narrow. Single-currency
-              //- upgrades keep the inline single-row layout.
-              div.flex.flex-col.items-center.leading-tight(
-                v-if="sk.upgradeSecondaryHeat(u.id) > 0"
-                class="gap-0.5"
+          //- Buy / Maxed
+          div.shrink-0
+            template(v-if="isUpgradeMaxed(u.id)")
+              div.rounded-lg.border.border-emerald-700.bg-emerald-900.px-3.py-2.text-emerald-200.text-xs.font-black.uppercase MAX
+            template(v-else)
+              FButton(
+                :is-disabled="!canAffordUpgrade(u.id)"
+                size="sm"
+                @click="buyUpgrade(u.id)"
               )
-                div.flex.items-center.gap-1
+                //- Hybrid cost (Big Probe Station): stack the two currencies
+                //- vertically so the button stays narrow. Single-currency
+                //- upgrades keep the inline single-row layout.
+                div.flex.flex-col.items-center.leading-tight(
+                  v-if="sk.upgradeSecondaryHeat(u.id) > 0"
+                  class="gap-0.5"
+                )
+                  div.flex.items-center.gap-1
+                    div.h-3.w-3(
+                      class="rotate-45 bg-gradient-to-br from-[#c8a8ff] to-[#5d3aa8]"
+                      style="box-shadow: 0 0 6px rgba(170,110,255,0.8)"
+                    )
+                    span.tabular-nums.text-xs {{ upgradeCost(u.id) }}
+                  div.flex.items-center.gap-1
+                    div.h-3.w-3.rounded-full(
+                      class="bg-gradient-to-br from-[#ffe79e] via-[#ff8c2a] to-[#c5320e]"
+                    )
+                    span.tabular-nums.text-xs {{ formatHeat(sk.upgradeSecondaryHeat(u.id)) }}
+                div.flex.items-center.gap-1(v-else)
+                  div.h-3.w-3.rounded-full(
+                    v-if="u.currency === 'heat'"
+                    class="bg-gradient-to-br from-[#ffe79e] via-[#ff8c2a] to-[#c5320e]"
+                  )
                   div.h-3.w-3(
+                    v-else
                     class="rotate-45 bg-gradient-to-br from-[#c8a8ff] to-[#5d3aa8]"
                     style="box-shadow: 0 0 6px rgba(170,110,255,0.8)"
                   )
-                  span.tabular-nums.text-xs {{ upgradeCost(u.id) }}
-                div.flex.items-center.gap-1
-                  div.h-3.w-3.rounded-full(
-                    class="bg-gradient-to-br from-[#ffe79e] via-[#ff8c2a] to-[#c5320e]"
-                  )
-                  span.tabular-nums.text-xs {{ formatHeat(sk.upgradeSecondaryHeat(u.id)) }}
-              div.flex.items-center.gap-1(v-else)
-                div.h-3.w-3.rounded-full(
-                  v-if="u.currency === 'heat'"
-                  class="bg-gradient-to-br from-[#ffe79e] via-[#ff8c2a] to-[#c5320e]"
-                )
-                div.h-3.w-3(
-                  v-else
-                  class="rotate-45 bg-gradient-to-br from-[#c8a8ff] to-[#5d3aa8]"
-                  style="box-shadow: 0 0 6px rgba(170,110,255,0.8)"
-                )
-                span.tabular-nums {{ upgradeCost(u.id) }}
+                  span.tabular-nums {{ upgradeCost(u.id) }}
 
     template(#footer)
       FButton(size="md" @click="close") Close
