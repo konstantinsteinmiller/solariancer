@@ -139,19 +139,37 @@ const handleTabChange = (val: string | number) => {
   text-shadow: 3px 3px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000
 
 // ─── Landscape mobile: tighter chrome ────────────────────────────────────────
+//
+// Phone landscape (~667 × 375): the ribbon header, close button and frame
+// chrome eat almost half the modal's height in default sizing. These
+// overrides shrink everything that's pure decoration so the modal's
+// CONTENT area gets the vertical space the player actually needs.
 @media (orientation: landscape) and (max-height: 500px)
   .modal-overlay
     padding: 0.375rem
   .model-container
-    max-width: 42rem
+    max-width: 44rem
   .modal-header
     transform: translateY(0.25rem)
-    top: -1.75rem
+    top: -1.5rem
+  // Scale the ribbon-header / tabs wrapper so it sits compact across the top.
+  // The wrapper is the immediate child of .modal-header (the
+  // `flex justify-center scale-70 sm:scale-100` div) — overriding its
+  // transform here beats Tailwind's sm:scale-100.
+  .modal-header > div
+    transform: scale(0.6) !important
+    transform-origin: top center !important
+  // The close button doubles in size on sm: viewports — landscape phones
+  // ARE sm: by width but tiny by height, so manually clamp it back down.
+  .close-button button
+    transform: scale(0.55) !important
+    margin-top: -0.85rem !important
+    margin-right: -0.85rem !important
   .modal-frame
-    padding-top: 1.25rem
+    padding-top: 0.55rem
     padding-bottom: 0
-    padding-left: 0.375rem
-    padding-right: 0.375rem
+    padding-left: 0.5rem
+    padding-right: 0.5rem
     border-width: 3px
     border-radius: 1rem
 </style>

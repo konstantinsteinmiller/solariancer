@@ -8,6 +8,9 @@ import type { TopPartId } from '@/types/spinner'
 // Shared state so it can be accessed by both the loader and the progress component
 const loadingProgress = ref(0)
 const areAllAssetsLoaded = ref(false)
+// Currently active backdrop image src — the renderer subscribes to this and
+// swaps the canvas backdrop when the high-res image preloads.
+export const currentBgSrc = ref<string>(prependBaseUrl('images/bg/bg_800x450.webp'))
 
 // THIS IS THE KEY: A persistent memory reference
 //
@@ -152,8 +155,14 @@ const STATIC_IMAGES = [
   'images/icons/chest_128x128.webp',
   'images/icons/trophy_128x128.webp',
   'images/bg/parchment-ribbon_553x188.webp',
-  'images/bg/bg-tile_400x400.webp'
+  'images/bg/bg-tile_400x400.webp',
+  // Low-res space backdrop — splash and game both start with this
+  'images/bg/bg_800x450.webp'
 ]
+
+// High-res backdrop — preloaded in the deferred tier; the renderer swaps
+// silently from the low-res version once this lands.
+const HIGH_RES_BG = 'images/bg/bg_1280x720.webp'
 
 const VFX_ASSETS = [
   'images/vfx/big-spark_1280x256.webp',
@@ -361,6 +370,24 @@ export default () => {
       try {
         await runInChunks(sfx, 4)
         await runInChunks(vfx, 4)
+        // High-res backdrop — once it's decoded, point the renderer at it.
+        // The swap is silent: the cached image is already in memory, so the
+        // first frame after the swap reads from cache instantly.
+        const hiResSrc = prependBaseUrl(HIGH_RES_BG)
+        if (!resourceCache.images.has(hiResSrc)) {
+          await new Promise<void>((resolve) => {
+            const img = new Image()
+            img.onload = () => {
+              resourceCache.images.set(hiResSrc, img)
+              currentBgSrc.value = hiResSrc
+              resolve()
+            }
+            img.onerror = () => resolve()
+            img.src = hiResSrc
+          })
+        } else {
+          currentBgSrc.value = hiResSrc
+        }
       } catch (e) {
         console.error('Deferred asset preload failed:', e)
       }

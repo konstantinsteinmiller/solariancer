@@ -142,8 +142,26 @@
       "Bash(curl -s \"http://localhost:5173/src/components/organisms/SolUpgradeModal.vue?t=$\\(date +%s\\)999\")",
       "Bash(curl -s \"http://localhost:5173/src/components/organisms/SolUpgradeModal.vue?vue&type=template&scoped=cffb83e5&lang.js&t=$\\(date +%s\\)999\")",
       "Bash(kill %1)",
-      "Bash(pkill -f \"vite\")"
+      "Bash(pkill -f \"vite\")",
+      "Bash(pnpm vue-tsc *)",
+      "Bash(timeout 15 pnpm vite --port 5173)",
+      "Bash(timeout 12 pnpm vite --port 5180)",
+      "Bash(timeout 12 pnpm vite --port 5181)",
+      "Bash(timeout 14 pnpm vite --port 5183)",
+      "Bash(timeout 12 pnpm vite --port 5184)",
+      "Bash(timeout 10 pnpm vite --port 5185)",
+      "Bash(timeout 10 pnpm vite --port 5186)",
+      "Bash(timeout 10 pnpm vite --port 5187)",
+      "Bash(timeout 10 pnpm vite --port 5188)",
+      "Bash(timeout 10 pnpm vite --port 5189)",
+      "Bash(timeout 10 pnpm vite --port 5190)",
+      "Bash(timeout 10 pnpm vite --port 5191)",
+      "Bash(timeout 10 pnpm vite --port 5192)",
+      "Bash(timeout 10 pnpm vite --port 5193)",
+      "Bash(timeout 12 pnpm vite --port 5194)",
+      "Bash(timeout 14 pnpm vite --port 5195)",
+      "Bash(pnpm vite *)"
     ]
   },
-  "defaultMode": "bypassPermissions"
+  "defaultMode": "auto"
 }

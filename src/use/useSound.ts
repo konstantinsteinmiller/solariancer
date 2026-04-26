@@ -205,11 +205,17 @@ const useSounds = () => {
   const playViaWebAudio = (
     ctx: AudioContext,
     buffer: AudioBuffer,
-    ratio: number
+    ratio: number,
+    pitch: number
   ): SoundHandle | null => {
     try {
       const source = ctx.createBufferSource()
       source.buffer = buffer
+      // Pitch via playbackRate — same param browsers use for Audio.playbackRate.
+      // Clamp so a stray caller can't request weirdness like 0 or huge values.
+      if (pitch !== 1) {
+        source.playbackRate.value = Math.max(0.25, Math.min(4, pitch))
+      }
       const gain = ctx.createGain()
       gain.gain.value = clampVolume(ratio)
       source.connect(gain).connect(ctx.destination)
@@ -224,7 +230,7 @@ const useSounds = () => {
     }
   }
 
-  const playViaHtmlAudio = (src: string, ratio: number): HTMLAudioElement => {
+  const playViaHtmlAudio = (src: string, ratio: number, pitch: number): HTMLAudioElement => {
     const cached = resourceCache.audio.get(src)
     const audio = cached
       ? (cached.cloneNode(false) as HTMLAudioElement)
@@ -233,20 +239,23 @@ const useSounds = () => {
     // Firefox throws DOMException if volume is NaN or out of range (can
     // happen when userSoundVolume hasn't loaded from IndexedDB yet).
     audio.volume = clampVolume(ratio)
+    if (pitch !== 1) {
+      audio.playbackRate = Math.max(0.25, Math.min(4, pitch))
+    }
     audio.play().catch(() => {
       /* autoplay blocked or media failed — ignore */
     })
     return audio
   }
 
-  const playSound = (effect: string, ratio = 0.025): SoundHandle | null => {
+  const playSound = (effect: string, ratio = 0.025, pitch = 1): SoundHandle | null => {
     const src = prependBaseUrl(`audio/sfx/${effect}.ogg`)
 
     // Fast path: preloaded AudioBuffer + Web Audio.
     const buffer = resourceCache.audioBuffers.get(src)
     const ctx = getAudioContext()
     if (ctx && buffer) {
-      return playViaWebAudio(ctx, buffer, ratio)
+      return playViaWebAudio(ctx, buffer, ratio, pitch)
     }
 
     // Slow path: Web Audio available but buffer not yet decoded. Kick off
@@ -257,7 +266,7 @@ const useSounds = () => {
     }
 
     // Fallback: HTMLAudio (also used when Web Audio is unavailable).
-    return playViaHtmlAudio(src, ratio)
+    return playViaHtmlAudio(src, ratio, pitch)
   }
 
   return {

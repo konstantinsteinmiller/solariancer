@@ -1,4 +1,5 @@
 | Date     | Hours | Notes                                                   |
 |----------|-------|---------------------------------------------------------|
-| 25.04.26 | 1h    | initial project, bg music, battle music, basic gameplay |
+| 25.04.26 | 6h    | initial project, bg music, battle music, basic gameplay |
+| 26.04.26 | 6h    | roadmap and mobile adjustments                          |
   

@@ -170,9 +170,12 @@ div[style*="conic-gradient"]
   inset: 0
   z-index: 150
   background-color: #0d1117
-  background-image: url('/images/bg/bg-tile_400x400.webp')
-  background-repeat: repeat
-  background-size: 400px 400px
+  // Low-res space backdrop, drawn cover-style. The image is 16:9; on
+  // portrait viewports we crop the sides and centre the visible area.
+  background-image: url('/images/bg/bg_800x450.webp')
+  background-repeat: no-repeat
+  background-size: cover
+  background-position: center center
 // No pointer events so nothing underneath is accidentally clickable anyway
 // (there's nothing interactive rendered yet during initial load)
 

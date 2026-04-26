@@ -1,6 +1,6 @@
 # Solariancer
 
-Solariancer is an orbit controll game with a physics based gravity-sigularity mechanic.
+Solariancer is an orbit control game with a physics based gravity-sigularity mechanic.
 
 It features a github pages deployed CI cd pipeline and a windows build + demo build.
 

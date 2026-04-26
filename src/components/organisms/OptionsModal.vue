@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue' // Added computed
 import { useI18n } from 'vue-i18n'
 import useUser from '@/use/useUser'
+import useSolKeeper from '@/use/useSolKeeper'
 import { setI18nLocale } from '@/i18n'
 import FModal from '@/components/molecules/FModal.vue'
 import FButton from '@/components/atoms/FButton.vue'
@@ -9,6 +10,7 @@ import FSwitch from '@/components/atoms/FSwitch.vue'
 import FSlider from '@/components/atoms/FSlider.vue'
 import FSelect from '@/components/atoms/FSelect.vue'
 import { DIFFICULTY, LANGUAGES } from '@/utils/enums' // Import LANGUAGES
+import { STAGE_TYPES } from '@/use/useSolKeeper'
 import { prependBaseUrl } from '@/utils/function'
 
 defineProps<{
@@ -36,6 +38,34 @@ const {
   userMusicVolume,
   resetGameProgress
 } = useUser()
+
+const sk = useSolKeeper()
+
+// Sun-skin selector — auto + each unlocked palette
+const sunSkinOptions = computed(() => {
+  const cap = sk.state.value.preferences.unlockedSunSkin
+  const items: Array<{ value: number; label: string }> = [{ value: -1, label: 'Auto (cycle with stage)' }]
+  for (let i = 0; i <= cap && i < STAGE_TYPES.length; i++) {
+    items.push({ value: i, label: `${i + 1}. ${STAGE_TYPES[i]}` })
+  }
+  return items
+})
+
+// Trail palette selector — only show unlocked options
+const allTrailPalettes: Array<{
+  value: 'auto' | 'rainbow' | 'ember' | 'plasma' | 'aurora';
+  label: string;
+  hint: string
+}> = [
+  { value: 'auto', label: 'Auto (body hue)', hint: 'Default — match each body' },
+  { value: 'rainbow', label: 'Rainbow', hint: 'Unlocks at 50 ripe feeds' },
+  { value: 'ember', label: 'Ember', hint: 'Unlocks at 25 comets caught' },
+  { value: 'plasma', label: 'Plasma', hint: 'Unlocks at 5 black holes survived' },
+  { value: 'aurora', label: 'Aurora', hint: 'Unlocks at 200 ripe feeds' }
+]
+const trailPaletteOptions = computed(() =>
+  allTrailPalettes.filter(p => sk.state.value.preferences.unlockedTrails.includes(p.value))
+)
 
 const currentTab = ref('general')
 
@@ -104,9 +134,12 @@ const doResetProgress = () => {
     v-model:activeTab="currentTab"
     @update:model-value="emit('close')"
   )
-    //- General Tab
+    //- General Tab — scrolls on small viewports so all controls stay reachable.
     div(v-if="currentTab === 'general'")
-      div(class="flex flex-col gap-2 p-2")
+      div(
+        class="flex flex-col p-1 sm:p-2 overflow-y-auto"
+        :class="['gap-1 sm:gap-2', 'max-h-[55vh] sm:max-h-[60vh] landscape-shrink']"
+      )
         //- Language Selection
         div(class="z-[10] flex flex-col gap-2 scale-80 sm:scale-100")
           FSelect(
@@ -117,7 +150,41 @@ const doResetProgress = () => {
             @update:model-value="setSettingValue('language', $event)"
           )
 
-        hr(class="border-slate-600 my-1 md:my-2 pt-0")
+        hr(class="border-slate-600 my-0.5 md:my-1 pt-0")
+
+        //- Sol Keeper: opt-in Session badge in the HUD
+        div(class="flex items-center justify-between !text-[10px]")
+          span(class="!text-[10px] md:text-[12px] font-black text-white uppercase italic") {{ t('showSessionBadge') }}
+          FSwitch(
+            :model-value="sk.state.value.preferences.showSessionBadge"
+            @update:model-value="sk.setPreference('showSessionBadge', $event)"
+          )
+
+        hr(class="border-slate-600 my-0.5 md:my-1 pt-0")
+
+        //- Sol Keeper: Sun skin override
+        div(class="z-[9] flex flex-col gap-2 scale-80 sm:scale-100")
+          FSelect(
+            class="!text-[10px] md:text-[12px]"
+            :label="t('sunSkin')"
+            :options="sunSkinOptions"
+            :model-value="sk.state.value.preferences.selectedSunSkin"
+            @update:model-value="sk.setPreference('selectedSunSkin', Number($event))"
+          )
+
+        hr(class="border-slate-600 my-0.5 md:my-1 pt-0")
+
+        //- Sol Keeper: Trail palette
+        div(class="z-[8] flex flex-col gap-2 scale-80 sm:scale-100")
+          FSelect(
+            class="!text-[10px] md:text-[12px]"
+            :label="t('trailPalette')"
+            :options="trailPaletteOptions"
+            :model-value="sk.state.value.preferences.trailPalette"
+            @update:model-value="sk.setPreference('trailPalette', $event)"
+          )
+
+        hr(class="border-slate-600 my-0.5 md:my-1 pt-0")
 
         div(class="flex items-center justify-between !text-[10px]")
           div.flex-grow-1(class="!text-[10px] md:text-[12px] font-black text-white uppercase italic") {{ t('resetCampaign') }}
@@ -129,7 +196,7 @@ const doResetProgress = () => {
         //    :model-value="!userSkipRulesModal"
         //    @update:model-value="setSettingValue('skipRulesModal', !$event)"
         //  )
-        hr(class="border-slate-600 my-1 md:my-2 pt-0")
+        hr(class="border-slate-600 my-0.5 md:my-1 pt-0")
         FModal(v-model:model-value="showAskResetModal"
           :title="`${t('reset')}?`"
           :is-closable="true"
@@ -149,7 +216,7 @@ const doResetProgress = () => {
           :type="userDifficulty === difficulty ? 'primary' : 'secondary'"
           @click="setSettingValue('difficulty', difficulty)"
         ) {{ t(difficulty) }}
-        hr(class="border-slate-600 my-1 md:my-2 pt-0")
+        hr(class="border-slate-600 my-0.5 md:my-1 pt-0")
 
     //- Audio Tab
     div(v-else-if="currentTab === 'audio'").flex.flex-col.justify-between.items-center
@@ -167,6 +234,53 @@ const doResetProgress = () => {
 
 span
   text-shadow: 2px 2px 0 #000
+
+// Phone landscape — modal chrome eats vertical space, leave just enough for
+// the scroll area without pushing the footer / tabs off the screen.
+@media (orientation: landscape) and (max-height: 500px)
+  .landscape-shrink
+    max-height: 70vh
+
+  // The settings tabs use FSelect/FButton, which on sm+ width (landscape
+  // phones qualify by width) jump to their md: paddings & text sizes.
+  // Reach past the scoped boundary with :deep() to clamp them back down.
+
+  // FSelect — label + trigger body. The body is `button > span.relative.flex`
+  // which is unique to FSelect (FButton's body has class `f-button-body`,
+  // and FModal's close button uses divs, not spans).
+  :deep(.label-text)
+    font-size: 0.65rem !important
+    margin-bottom: 0.1rem !important
+    text-shadow: 1px 1px 0 #000 !important
+  :deep(button > span.relative.flex)
+    padding: 0.3rem 0.55rem !important
+    min-width: 0 !important
+    border-width: 2px !important
+    border-radius: 0.55rem !important
+  :deep(button > span.relative.flex span.text)
+    font-size: 0.7rem !important
+  :deep(button > span.relative.flex svg)
+    width: 12px !important
+    height: 12px !important
+
+  // FButton (difficulty list + footer Save & Close)
+  :deep(.f-button-body)
+    padding: 0.3rem 0.7rem !important
+    min-width: 0 !important
+    border-width: 2px !important
+    border-radius: 0.55rem !important
+  :deep(.f-button-body .text)
+    font-size: 0.7rem !important
+    line-height: 1 !important
+
+  // Tighten gap between rows
+  :deep(hr)
+    margin: 0.15rem 0 !important
+
+// Small viewports — keep selects/sliders compact so they don't overflow.
+@media (max-width: 480px)
+  :deep(.f-select), :deep(.f-slider)
+    font-size: 11px
 </style>
 
 <i18n lang="yaml">
@@ -177,6 +291,9 @@ en:
   audio: "Audio"
   language: "Language"
   showRulesModal: "Show Match Rules before game"
+  showSessionBadge: "Show Session Badge (Sol Keeper)"
+  sunSkin: "Sun Skin"
+  trailPalette: "Trail Palette"
   resetCampaign: "Reset Game Progress"
   reset: "Reset"
   sureResetCampaign: "Are you sure you want to reset the game progress?"
@@ -202,6 +319,9 @@ de:
   audio: "Audio"
   language: "Sprache"
   showRulesModal: "Kampfregeln vor dem Spiel anzeigen"
+  showSessionBadge: "Session-Anzeige (Sol Keeper)"
+  sunSkin: "Sonnenskin"
+  trailPalette: "Spurfarbe"
   resetCampaign: "Spielfortschritt zurücksetzen"
   reset: "zurücksetzen"
   sureResetCampaign: "Bist du sicher, dass du den Spielfortschritt zurücksetzen möchtest?"

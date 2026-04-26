@@ -19,6 +19,16 @@ export const isMobilePortrait = computed(() =>
   mobileCheck() && windowWidth.value <= 500
 )
 
+// Viewport-size flags — these don't require a real mobile UA and so also fire
+// for narrow desktop windows. Used to scale Sol Keeper HUD/buttons so they
+// fit on small screens, regardless of device.
+export const isCompactViewport = computed(() =>
+  windowWidth.value < 720 || isMobilePortrait.value || isMobileLandscape.value
+)
+export const isTabletViewport = computed(() =>
+  windowWidth.value >= 720 && windowWidth.value < 1024 && !isMobilePortrait.value
+)
+
 declare const APP_VERSION: string
 export const isCrazyWeb = import.meta.env.VITE_APP_CRAZY_WEB === 'true'
 export const isWaveDash = import.meta.env.VITE_APP_WAVEDASH === 'true'
