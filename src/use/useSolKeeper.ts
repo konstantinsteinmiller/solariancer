@@ -1,6 +1,15 @@
 import { ref, computed } from 'vue'
 import type { Ref } from 'vue'
 import type { SolKeeperState, UpgradeDef, UpgradeId } from '@/types/solkeeper'
+// Battle Pass XP hooks. Static import — both modules form a cycle
+// (useBattlePass -> useSolKeeper for the claim payout), but neither calls
+// the other's bindings during module-init, so the hoisted bindings are
+// defined by the time gameplay actually fires them.
+import {
+  awardStageAdvance as bpAwardStageAdvance,
+  awardCombo as bpAwardCombo,
+  BP_COMBO_THRESHOLD
+} from '@/use/useBattlePass'
 
 const STORAGE_KEY = 'sol_keeper_state_v1'
 
@@ -360,6 +369,11 @@ const addHeat = (amount: number) => {
     if (newTier > state.value.preferences.unlockedSunSkin) {
       state.value.preferences.unlockedSunSkin = newTier
     }
+    // Battle Pass: each game-stage advance pays into the BP track. The
+    // cascade can fire multiple times in one heat payout, and the BP
+    // earns one award per advance — that's by design ("every 2 stages
+    // = +1 BP level" → 50 xp per game stage).
+    bpAwardStageAdvance()
     saveState()
     goal = stageHeatGoal(state.value.stage)
   }
@@ -452,9 +466,16 @@ const registerRipeFeed = (): { combo: number; multiplier: number; rolledThreshol
   const now = performance.now()
   const withinWindow = (now - comboLastFeedAt.value) / 1000 < COMBO_WINDOW
   const prevMult = comboMultiplier.value
+  const prevCombo = comboCount.value
   if (withinWindow) comboCount.value += 1
   else comboCount.value = 1
   comboLastFeedAt.value = now
+  // Battle Pass: pay one combo award the moment the chain crosses the
+  // 3-body threshold. Higher tiers (5, 7, ...) don't pay extra here —
+  // their value is the heat multiplier itself.
+  if (prevCombo < BP_COMBO_THRESHOLD && comboCount.value >= BP_COMBO_THRESHOLD) {
+    bpAwardCombo()
+  }
   if (comboCount.value > comboPeak.value) comboPeak.value = comboCount.value
   if (comboCount.value > state.value.bestComboChain) {
     state.value.bestComboChain = comboCount.value

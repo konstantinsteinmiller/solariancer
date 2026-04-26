@@ -20,7 +20,7 @@ export const isMobilePortrait = computed(() =>
 )
 
 // Viewport-size flags — these don't require a real mobile UA and so also fire
-// for narrow desktop windows. Used to scale Sol Keeper HUD/buttons so they
+// for narrow desktop windows. Used to scale Solariancer HUD/buttons so they
 // fit on small screens, regardless of device.
 export const isCompactViewport = computed(() =>
   windowWidth.value < 720 || isMobilePortrait.value || isMobileLandscape.value

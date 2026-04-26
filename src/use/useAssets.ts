@@ -1,9 +1,5 @@
 import { ref } from 'vue'
-import { modelImgPath, SPINNER_MODEL_IDS, getSelectedSkin } from '@/use/useModels.ts'
-import useSpinnerConfig from '@/use/useSpinnerConfig.ts'
-import useSpinnerCampaign from '@/use/useSpinnerCampaign.ts'
 import { prependBaseUrl } from '@/utils/function.ts'
-import type { TopPartId } from '@/types/spinner'
 
 // Shared state so it can be accessed by both the loader and the progress component
 const loadingProgress = ref(0)
@@ -12,7 +8,7 @@ const areAllAssetsLoaded = ref(false)
 // swaps the canvas backdrop when the high-res image preloads.
 export const currentBgSrc = ref<string>(prependBaseUrl('images/bg/bg_800x450.webp'))
 
-// THIS IS THE KEY: A persistent memory reference
+// Persistent caches.
 //
 // `audio` holds HTMLAudioElements (used for streamed background music where
 // we don't want the whole file decoded into memory).
@@ -124,114 +120,64 @@ export const loadAudioBuffer = async (src: string): Promise<AudioBuffer | null> 
   return promise
 }
 
-// ─── Preload tiers ─────────────────────────────────────────────────────────
+// ─── Preload tiers (Sol Keeper) ────────────────────────────────────────────
 //
-// Three layers of preload with distinct urgency:
+// Two layers, chosen to minimise the time to first interactive frame and
+// then eliminate every visible / audible pop-in before the player can
+// trigger it.
 //
-//  1. STATIC_IMAGES + critical skins — splash-blocking. These paint the
-//     very first UI frame (logo, HUD icons, parchment ribbon, tiled bg)
-//     and the skins visible in the opening stage. Kept small and cheap
-//     so the FLogoProgress overlay can exit as fast as possible.
+//   1. CRITICAL — splash-blocking. Drives the FLogoProgress %, gates the
+//      RouterView mount. Strictly limited to assets that paint the very
+//      first frame of SolKeeperGame:
+//         • the splash logo
+//         • the low-res space backdrop (used as splash CSS background AND
+//           as the canvas backdrop until the hi-res version lands)
+//         • the two icons that sit on the bottom HUD (settings, gears)
+//      Everything else is deferred so the loader can hit 100% in tens of
+//      ms on cached loads and within a single network round-trip on cold.
 //
-//  2. SFX + VFX spritesheets — deferred. Fired after the splash-blocking
-//     preload resolves, fire-and-forget. SFX go first because they
-//     decode quickly and early combat wants them in memory; VFX go last
-//     (explosion_2080x160 ≈ 300KB and big-spark_1280x256 ≈ 200KB dwarf
-//     the UI icons and would otherwise pad the splash by ~200–500ms on
-//     slower connections). By the time the player reaches the arena
-//     these are almost always in cache; the few that aren't decode on
-//     first use and are then cached in resourceCache forever.
-//
-//  3. preloadRemainingSkins — every skin not needed for the current
-//     stage. Triggered from SpinnerArena on mount, fire-and-forget.
-const STATIC_IMAGES = [
+//   2. DEFERRED — fire-and-forget once the splash is done. Anything the
+//      player will see / hear during normal play but isn't on the very
+//      first frame:
+//         • the high-res backdrop (silent swap when ready — the renderer
+//           subscribes to `currentBgSrc`)
+//         • gameplay SFX (collisions, explosions, stage-up)
+//         • the two icons used inside OptionsModal — by the time the
+//           player taps Settings these are already in cache, so the
+//           modal renders without a flash.
+
+const CRITICAL_IMAGES = [
   'images/logo/logo_256x256.webp',
-  'images/icons/difficulty-icon_128x128.webp',
+  'images/bg/bg_800x450.webp',
   'images/icons/settings-icon_128x128.webp',
-  'images/icons/sound-icon_128x128.webp',
-  'images/icons/team_128x128.webp',
-  'images/icons/gears_128x128.webp',
-  'images/icons/movie_128x96.webp',
-  'images/icons/chest_128x128.webp',
-  'images/icons/trophy_128x128.webp',
-  'images/bg/parchment-ribbon_553x188.webp',
-  'images/bg/bg-tile_400x400.webp',
-  // Low-res space backdrop — splash and game both start with this
-  'images/bg/bg_800x450.webp'
+  'images/icons/gears_128x128.webp'
 ]
 
-// High-res backdrop — preloaded in the deferred tier; the renderer swaps
-// silently from the low-res version once this lands.
+const DEFERRED_IMAGES = [
+  // Inside OptionsModal — needs to be cached before the player taps Settings.
+  'images/icons/sound-icon_128x128.webp',
+  'images/icons/difficulty-icon_128x128.webp'
+]
+
+// High-res backdrop — once decoded we point the renderer at it. The swap
+// is silent: the renderer keeps drawing the low-res image until the hi-res
+// is in `resourceCache.images` and then picks it up on its next frame.
 const HIGH_RES_BG = 'images/bg/bg_1280x720.webp'
 
-const VFX_ASSETS = [
-  // 'images/vfx/big-spark_1280x256.webp',
-  // 'images/vfx/dark-smoke_1280x128.webp',
-  // 'images/vfx/earth-rip-decal_138x138.webp',
-  // 'images/vfx/explosion_2080x160.webp'
-]
-
+// Gameplay SFX actually triggered by Sol Keeper. Sourced from
+// `useGravityPhysics.ts` (clash-* on body collisions / sun feeds,
+// explosion-1 on comet/black-hole detonations, level-up on stage advance).
+// The synthesised audio in `useSolAudio.ts` (heat hum, black-hole rumble)
+// uses Web Audio oscillators directly and isn't a file at all.
 const SOUND_ASSETS = [
   'audio/sfx/clash-1.ogg',
   'audio/sfx/clash-2.ogg',
   'audio/sfx/clash-3.ogg',
   'audio/sfx/clash-4.ogg',
   'audio/sfx/clash-5.ogg',
-  'audio/sfx/celebration-1.ogg',
-  'audio/sfx/celebration-2.ogg',
-  'audio/sfx/happy.ogg',
-  'audio/sfx/level-up.ogg',
-  'audio/sfx/win.ogg',
-  'audio/sfx/lose.ogg',
-  'audio/sfx/reward-continue.ogg'
+  'audio/sfx/explosion-1.ogg',
+  'audio/sfx/level-up.ogg'
 ]
-
-// Kept for reference — music is streamed on demand from SpinnerArena, not preloaded.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const MUSIC_ASSETS = [
-  // 'audio/music/battle-1.ogg',
-  // 'audio/music/battle-2.ogg',
-  // 'audio/music/battle-3.ogg'
-]
-
-/**
- * Skin IDs the player will see IMMEDIATELY on first paint:
- *   • both player-team slots (resolved via getSelectedSkin — falls back to the
- *     default catalog skin when no selection has been persisted yet, which
- *     covers the very first load).
- *   • every enemy in the current campaign stage (stored on each StageBladeConfig).
- *
- * Everything else (the other ~40 skins in the config modal catalog, future
- * stages the player hasn't unlocked yet) is deferred to `preloadRemainingSkins`
- * which runs in the background once the arena is interactive.
- */
-const getCriticalSkinIds = (): Set<string> => {
-  const ids = new Set<string>()
-  try {
-    const { playerTeam } = useSpinnerConfig()
-    playerTeam.value.forEach((cfg, slotIndex) => {
-      // modelId override wins; otherwise resolve the player's chosen skin for
-      // this top part. getSelectedSkin always returns a valid id (default on
-      // first load).
-      const id = cfg.modelId ?? getSelectedSkin(cfg.topPartId as TopPartId, slotIndex)
-      if (id) ids.add(id)
-    })
-  } catch (e) {
-    console.warn('[assets] player team resolve failed, using no player skins', e)
-  }
-  try {
-    const { currentStage } = useSpinnerCampaign()
-    const stage = currentStage.value
-    if (stage?.enemyTeam) {
-      for (const enemy of stage.enemyTeam) {
-        if (enemy.modelId) ids.add(enemy.modelId)
-      }
-    }
-  } catch (e) {
-    console.warn('[assets] stage resolve failed, using no stage skins', e)
-  }
-  return ids
-}
 
 type AssetEntry = { src: string; type: 'image' | 'audio' }
 
@@ -297,29 +243,17 @@ const runInChunks = async (assets: AssetEntry[], chunkSize: number, onLoaded?: (
   }
 }
 
-// Tracks in-flight background skin preload so repeat triggers noop and the
-// config modal can await it if opened early.
-let remainingSkinsPromise: Promise<void> | null = null
-
-// Same idea for the SFX + VFX tier — callers that really need to know
-// when every effect is in memory (e.g. a test suite) can await this.
+// Tracks the in-flight deferred preload so repeat calls share the same
+// promise (the splash screen `preloadAssets()` triggers it; tests that
+// need to await it can grab the returned promise).
 let deferredAssetsPromise: Promise<void> | null = null
 
 export default () => {
   const preloadAssets = async () => {
     if (areAllAssetsLoaded.value) return
 
-    // const criticalSkinIds = getCriticalSkinIds()
-    // const criticalSkinPaths = [...criticalSkinIds].map(id => modelImgPath(id))
-
-    // Splash-critical tier only: UI chrome + the skins rendered on first
-    // paint. SFX and VFX spritesheets are kicked off as a background
-    // chain below so the loader can hit 100% as soon as the player can
-    // actually see something.
-    const criticalAssets: AssetEntry[] = [
-      ...STATIC_IMAGES.map(src => ({ src: prependBaseUrl(src), type: 'image' as const })),
-      // ...criticalSkinPaths.map(src => ({ src, type: 'image' as const }))
-    ]
+    const criticalAssets: AssetEntry[] = CRITICAL_IMAGES
+      .map(src => ({ src: prependBaseUrl(src), type: 'image' as const }))
 
     let loadedCount = 0
     const totalCount = criticalAssets.length
@@ -337,18 +271,24 @@ export default () => {
       loadingProgress.value = 100
     }
 
-    // Fire-and-forget. Not awaited so the splash can exit the moment
-    // the critical tier is done.
+    // Fire-and-forget. Not awaited so the splash exits the moment the
+    // critical tier is done.
     void preloadDeferredAssets()
   }
 
   /**
-   * Background loader for SFX then VFX. SFX first because short OGGs
-   * decode in a few ms and the player can generate combat sounds seconds
-   * after the splash is gone; VFX second because the spritesheets are
-   * hundreds of KB each and the game tolerates a single stutter on first
-   * spawn before they land in resourceCache. Idempotent — repeat calls
-   * share the same in-flight promise.
+   * Background loader for the rest. Order:
+   *   1. SFX — small OGGs that decode in a few ms. Loaded first so the
+   *      first body collision (which can fire seconds after the splash
+   *      exits) doesn't pop a silent then-late sound.
+   *   2. Modal-only icons — tiny WebPs. Cached before the player taps
+   *      Settings.
+   *   3. High-res backdrop — biggest single asset, swapped silently. We
+   *      keep it last because the low-res version is already on screen
+   *      and looks fine; the swap is a quality bump, not a functional
+   *      requirement.
+   *
+   * Idempotent — repeat calls share the in-flight promise.
    */
   const preloadDeferredAssets = (): Promise<void> => {
     if (deferredAssetsPromise) return deferredAssetsPromise
@@ -358,21 +298,19 @@ export default () => {
       .filter(src => !resourceCache.audioBuffers.has(src))
       .map(src => ({ src, type: 'audio' as const }))
 
-    const vfx: AssetEntry[] = VFX_ASSETS
+    const modalIcons: AssetEntry[] = DEFERRED_IMAGES
       .map(src => prependBaseUrl(src))
       .filter(src => !resourceCache.images.has(src))
       .map(src => ({ src, type: 'image' as const }))
 
-    // Smaller chunks than the critical loader — we're competing with
-    // arena render work once the player is interactive, so we keep the
-    // bandwidth footprint modest.
     deferredAssetsPromise = (async () => {
       try {
+        // Smaller chunks than the splash loader — we're competing with
+        // game render work once the player is interactive, so we keep the
+        // bandwidth footprint modest.
         await runInChunks(sfx, 4)
-        await runInChunks(vfx, 4)
-        // High-res backdrop — once it's decoded, point the renderer at it.
-        // The swap is silent: the cached image is already in memory, so the
-        // first frame after the swap reads from cache instantly.
+        await runInChunks(modalIcons, 4)
+
         const hiResSrc = prependBaseUrl(HIGH_RES_BG)
         if (!resourceCache.images.has(hiResSrc)) {
           await new Promise<void>((resolve) => {
@@ -395,64 +333,11 @@ export default () => {
     return deferredAssetsPromise
   }
 
-  /**
-   * Prefetch a specific set of skins by modelId. Used to warm the cache
-   * for the NEXT campaign stage's enemies while the player is on the
-   * reward screen — typically ~3 s of idle wall-time, plenty for 2-4
-   * decodes. Skips ids already in the cache; returns a promise that
-   * resolves once every missing skin has decoded so callers can chain on
-   * it if they want, but the intended use is fire-and-forget.
-   */
-  const preloadSkinsByIds = (ids: string[]): Promise<void> => {
-    const entries: AssetEntry[] = []
-    const seen = new Set<string>()
-    for (const id of ids) {
-      const src = modelImgPath(id)
-      if (seen.has(src) || resourceCache.images.has(src)) continue
-      seen.add(src)
-      entries.push({ src, type: 'image' as const })
-    }
-    if (entries.length === 0) return Promise.resolve()
-    return runInChunks(entries, 4).catch((e) => {
-      console.error('Targeted skin preload failed:', e)
-    }) as Promise<void>
-  }
-
-  /**
-   * Fire-and-forget background loader for every skin NOT in the critical set.
-   * Safe to call multiple times — concurrent calls share the same in-flight
-   * promise. Callers (e.g. the skin config modal) can `await` the returned
-   * promise if they need to be sure everything's cached before rendering a
-   * gallery.
-   */
-  const preloadRemainingSkins = (): Promise<void> => {
-    if (remainingSkinsPromise) return remainingSkinsPromise
-
-    const remaining: AssetEntry[] = SPINNER_MODEL_IDS
-      .map(id => modelImgPath(id))
-      .filter(src => !resourceCache.images.has(src))
-      .map(src => ({ src, type: 'image' as const }))
-
-    if (remaining.length === 0) {
-      remainingSkinsPromise = Promise.resolve()
-      return remainingSkinsPromise
-    }
-
-    // Smaller chunks than the critical preloader so we don't starve the main
-    // thread / network while the player is already interacting with the arena.
-    remainingSkinsPromise = runInChunks(remaining, 4).catch((e) => {
-      console.error('Background skin preload failed:', e)
-    }) as Promise<void>
-    return remainingSkinsPromise
-  }
-
   return {
     loadingProgress,
     areAllAssetsLoaded,
     preloadAssets,
     preloadDeferredAssets,
-    preloadRemainingSkins,
-    preloadSkinsByIds,
-    resourceCache // Export this if you want to debug memory usage
+    resourceCache // exported for debugging memory usage
   }
 }

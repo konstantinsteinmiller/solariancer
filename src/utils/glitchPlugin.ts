@@ -35,8 +35,8 @@ const resolveGlitchConfig = (): GlitchConfig | null => {
 
   const isProduction = import.meta.env.VITE_NODE_ENV === 'production'
   const titleId = isProduction
-    ? import.meta.env.VITE_APP_GLITCH_INSTALL_ID
-    : import.meta.env.VITE_APP_GLITCH_TEST_INSTALL_ID
+    ? import.meta.env.VITE_APP_GLITCH_TITLE_ID
+    : import.meta.env.VITE_APP_GLITCH_TEST_TITLE_ID
   const token = import.meta.env.VITE_APP_GLITCH_TOKEN
 
   if (!titleId || !token) return null

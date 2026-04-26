@@ -70,7 +70,17 @@ export interface SaveStrategy {
  */
 export const INTERNAL_KEY_PREFIX = '__save_internal__'
 
+/**
+ * Developer-only keys that live purely in localStorage and must NOT be
+ * mirrored to the cloud backend. These are dev toggles set by hand from
+ * devtools (e.g. `localStorage.fps='true'` to enable the perf meter); we
+ * don't want a cloud save to push them across devices or persist them in
+ * a player's account.
+ */
+const DEV_LOCAL_KEYS: readonly string[] = ['fps']
+
 export const isInternalKey = (key: string): boolean =>
   key.startsWith(INTERNAL_KEY_PREFIX) ||
   key.startsWith('__SafeLocalStorage__') || // CrazyGames SDK scratch space
-  key.startsWith('SDK_DATA_')                // CrazyGames SDK scratch space
+  key.startsWith('SDK_DATA_') ||             // CrazyGames SDK scratch space
+  DEV_LOCAL_KEYS.includes(key)               // dev-only flags (perf meter, etc.)

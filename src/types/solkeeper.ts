@@ -145,7 +145,7 @@ export interface SolKeeperState {
   stage: number
   /** Heat earned toward the current stage (resets to overflow on stage advance). */
   stageProgress: number
-  /** Persisted player preferences for the Sol Keeper UI. */
+  /** Persisted player preferences for the Solariancer UI. */
   preferences: SolKeeperPreferences
 }
 

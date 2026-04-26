@@ -1184,10 +1184,37 @@ const drawPopups = (ctx: CanvasRenderingContext2D) => {
   ctx.restore()
 }
 
-// ─── Canvas mount + RAF loop ───────────────────────────────────────────────
+// ─── Canvas mount + fixed-step simulation loop ─────────────────────────────
+//
+// The simulation is decoupled from the display refresh rate: every tick of
+// gameplay logic (tutorial, events, physics, mission, puzzles) runs at a
+// fixed 60 Hz step regardless of the device's frame rate. This gives the
+// same gravitational forces, cook timers, and combo windows on a 60Hz phone,
+// a 120Hz tablet, or a low-FPS laptop. Rendering still happens once per
+// rAF callback at whatever rate the browser provides — only the simulation
+// is locked to the fixed cadence.
+//
+// Pattern (Glenn Fiedler — "Fix Your Timestep"):
+//   accumulator += clamp(frameDt)
+//   while (accumulator >= FIXED_DT) { step(FIXED_DT); accumulator -= FIXED_DT }
+//   render()
+//
+// `MAX_FRAME_DT` caps how much real time a single frame can advance the
+// accumulator — without it, a tab returning from sleep would queue dozens
+// of catch-up steps and freeze the page (the "spiral of death"). On a
+// typical lag spike we lose ≤200ms of gameplay rather than burning a
+// second of CPU re-simulating it.
+//
+// `MAX_STEPS_PER_FRAME` is a second guard for the same scenario, in case
+// the steps themselves run slower than wall clock.
+
+const FIXED_DT = 1 / 60
+const MAX_FRAME_DT = 0.2
+const MAX_STEPS_PER_FRAME = 5
 
 let raf = 0
 let lastTime = 0
+let simAccum = 0
 let frameCount = 0
 let fpsAccum = 0
 
@@ -1226,34 +1253,18 @@ export const startRenderLoop = (canvas: HTMLCanvasElement) => {
   window.addEventListener('orientationchange', onResize)
   if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize)
 
-  const loop = (now: number) => {
-    raf = requestAnimationFrame(loop)
-    if (resizeAccum && now > resizeAccum) {
-      resize()
-      resizeAccum = 0
-    }
-    if (!lastTime) lastTime = now
-    const dt = (now - lastTime) / 1000
-    lastTime = now
-    fpsAccum += dt
-    frameCount++
-    if (fpsAccum >= 0.5) {
-      debugStats.value.fps = Math.round(frameCount / fpsAccum)
-      frameCount = 0
-      fpsAccum = 0
-    }
-
-    // Tutorial driver runs before physics so its scripted singularity input is
-    // applied within the same frame.
-    if (tutorial.active.value) tutorial.tick(dt)
-    // Events tick before physics so flare/black-hole multipliers are visible
-    // to this frame's heat ticks and forces.
-    events.tick(dt)
-    physics.tick(dt)
-    // Mission watches heat after physics has applied this frame's payouts.
-    mission.tick(dt)
+  const stepSimulation = () => {
+    // Tutorial driver runs before physics so its scripted singularity input
+    // is applied within the same step.
+    if (tutorial.active.value) tutorial.tick(FIXED_DT)
+    // Events tick before physics so flare / black-hole multipliers are
+    // visible to this step's heat ticks and forces.
+    events.tick(FIXED_DT)
+    physics.tick(FIXED_DT)
+    // Mission watches heat after physics has applied this step's payouts.
+    mission.tick(FIXED_DT)
     // Puzzles watch state directly (crowd active, comets caught, etc.).
-    puzzles.tick(dt)
+    puzzles.tick(FIXED_DT)
     // Advanced tutorial trigger — fires once after the player's first 5
     // ripe feeds. Gated so it never overlaps the intro tutorial.
     if (
@@ -1264,8 +1275,43 @@ export const startRenderLoop = (canvas: HTMLCanvasElement) => {
     ) {
       tutorial.startAdvanced()
     }
-    // Audio rides game state — read-only; safe to update after physics.
-    audio.tick(dt)
+  }
+
+  const loop = (now: number) => {
+    raf = requestAnimationFrame(loop)
+    if (resizeAccum && now > resizeAccum) {
+      resize()
+      resizeAccum = 0
+    }
+    if (!lastTime) lastTime = now
+    let frameDt = (now - lastTime) / 1000
+    lastTime = now
+    if (frameDt > MAX_FRAME_DT) frameDt = MAX_FRAME_DT
+
+    fpsAccum += frameDt
+    frameCount++
+    if (fpsAccum >= 0.5) {
+      debugStats.value.fps = Math.round(frameCount / fpsAccum)
+      frameCount = 0
+      fpsAccum = 0
+    }
+
+    simAccum += frameDt
+    let steps = 0
+    while (simAccum >= FIXED_DT && steps < MAX_STEPS_PER_FRAME) {
+      stepSimulation()
+      simAccum -= FIXED_DT
+      steps++
+    }
+    // Bleed any leftover the cap discarded so the accumulator can't grow
+    // unbounded after a hitch — snaps back to phase next frame.
+    if (steps >= MAX_STEPS_PER_FRAME && simAccum > FIXED_DT) {
+      simAccum = 0
+    }
+
+    // Audio is read-only render-side work — safe at frame rate; using the
+    // real frame dt keeps envelope smoothing tied to wall-clock time.
+    audio.tick(frameDt)
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     renderScene(canvas, ctx, now / 1000)
@@ -1274,6 +1320,8 @@ export const startRenderLoop = (canvas: HTMLCanvasElement) => {
 
   return () => {
     cancelAnimationFrame(raf)
+    lastTime = 0
+    simAccum = 0
     window.removeEventListener('resize', onResize)
     window.removeEventListener('orientationchange', onResize)
     if (window.visualViewport) window.visualViewport.removeEventListener('resize', onResize)

@@ -22,7 +22,6 @@ import IconSpeed from '@/components/icons/IconSpeed.vue'
 import IconHp from '@/components/icons/IconHp.vue'
 import DailyRewards from '@/components/organisms/DailyRewards.vue'
 import BattlePass from '@/components/organisms/BattlePass.vue'
-import useBattlePass from '@/use/useBattlePass'
 import TreasureChest from '@/components/organisms/TreasureChest.vue'
 import SkinChestTimer from '@/components/organisms/SkinChestTimer.vue'
 import type { GrantedSkin } from '@/use/useSkinChest'
@@ -37,7 +36,6 @@ import SurrenderIcon from '@/components/organisms/SurrenderIcon.vue'
 import PvPButton from '@/components/organisms/PvPButton.vue'
 import PvPLobbyModal from '@/components/organisms/PvPLobbyModal.vue'
 import usePVP from '@/use/usePVP'
-import usePvpStats, { calcHonorPoints } from '@/use/usePvpStats'
 import useLeaderboard, { type LeaderboardEntry } from '@/use/useLeaderboard'
 import {
   startGameplay,
@@ -137,16 +135,26 @@ const beginBattle = () => {
 const { setSettingValue } = useUser()
 
 // Battle Pass — xp awards are fired from the game-over watcher below.
-const {
-  awardCampaignWin: bpAwardCampaignWin,
-  awardLeaderboardWin: bpAwardLeaderboardWin,
-  awardLoss: bpAwardLoss
-} = useBattlePass()
-
-const { recordPvpWin, recordPvpLoss } = usePvpStats()
+// Battle Pass + PvP stats stubs — the chaos-arena BP API
+// (awardCampaignWin / awardLeaderboardWin / awardLoss) and `usePvpStats`
+// were removed during the Sol Keeper cleanup. This view (GameField, the
+// spinner game) is no longer routed; these no-ops keep the leftover
+// reward-flow code below compiling without re-introducing the deleted
+// modules.
+const bpAwardCampaignWin = () => {/* no-op — BP rewired for Sol Keeper */
+}
+const bpAwardLeaderboardWin = () => {/* no-op */
+}
+const bpAwardLoss = () => {/* no-op */
+}
+const recordPvpWin = (_hp: number) => {/* no-op */
+}
+const recordPvpLoss = () => {/* no-op */
+}
+const calcHonorPoints = (_my: number, _enemy: number): number => 0
 
 const PVP_COIN_REWARD = 20
-/** Honor points earned in the last PvP match — shown on the reward overlay. */
+/** Placeholder for the legacy PvP reward overlay. Always 0 now. */
 const lastHonorEarned: Ref<number> = ref(0)
 
 // ─── Canvas Refs ───────────────────────────────────────────────────────────
@@ -903,37 +911,9 @@ onMounted(() => {
 
   recordPlayerStage(currentStageId.value)
 
-  // Background-load every remaining skin (the ~40 not needed for current
-  // stage + player team) once the arena is rendered. Defers bandwidth /
-  // decode cost out of the initial FLogoProgress critical path so the
-  // game boots faster, while still having everything ready by the time
-  // the config modal is opened.
-  const { preloadRemainingSkins, preloadSkinsByIds } = useAssets()
-  const kick = () => {
-    preloadRemainingSkins()
-  }
-  // Warm the next stage's enemy skins while the reward overlay is up.
-  // `advanceStage()` already fired inside the game-over watcher above, so
-  // `currentStage.value.enemyTeam` now points at the NEXT stage's
-  // enemies. The player typically spends ~3 s on the reward screen —
-  // more than enough for 2-4 skins to fetch + decode, so the first frame
-  // of the next match already has them cached instead of decoding
-  // mid-render and stalling the canvas.
-  watch(
-    () => showReward.value || showRoulette.value,
-    (open) => {
-      if (!open || gameResult.value !== 'win') return
-      const ids = currentStage.value.enemyTeam
-        .map(e => e.modelId)
-        .filter((id): id is string => typeof id === 'string' && id.length > 0)
-      if (ids.length > 0) preloadSkinsByIds(ids)
-    }
-  )
-  if (typeof (window as any).requestIdleCallback === 'function') {
-    (window as any).requestIdleCallback(kick, { timeout: 2000 })
-  } else {
-    setTimeout(kick, 500)
-  }
+  // (Skin preloaders removed with the chaos-arena cleanup of useAssets —
+  // GameField.vue is a leftover spinner view kept around for reference but
+  // no longer wired into the router.)
 
   // Check URL for incoming PvP invite — open modal and auto-join
   const pendingPvpHost = checkInviteFromUrl()

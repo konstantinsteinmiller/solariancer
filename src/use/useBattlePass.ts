@@ -1,30 +1,24 @@
 import { ref, computed } from 'vue'
 import type { Ref } from 'vue'
-import useSpinnerConfig from '@/use/useSpinnerConfig'
-import {
-  SKINS_PER_TOP, SPECIAL_SKINS,
-  isModelFullyOwned,
-  buySkin,
-  type SpinnerModelId
-} from '@/use/useModels'
-import type { TopPartId } from '@/types/spinner'
-import { resetHonorTrack } from '@/use/usePvpStats'
+import useSolKeeper from '@/use/useSolKeeper'
 
 /**
- * Battle Pass progression. 50 stages, 100 xp per stage. Win/loss events
- * feed xp:
- *   - campaign win      → 50 xp (half a stage)
- *   - leaderboard (ghost) win → 25 xp (quarter of a stage)
- *   - any loss          → 12.5 xp (eighth of a stage)
+ * Sol Keeper Battle Pass — 100 stages, 100 xp per stage.
  *
- * Rewards are mostly coins on a linear ramp (30 at stage 1 → 300 at
- * stage 50, rounded to nearest 5), with a handful of "skin" slots that
- * grant an unowned skin at claim time — falling back to coins if no
- * unowned skin remains in the catalog.
+ * XP sources (all routed through `awardStageAdvance` / `awardCombo`):
+ *   • Game stage advance         → +50 xp (half a BP stage; two game-stages
+ *                                  per BP stage, matching the design "every
+ *                                  2 stages = +1 BP level")
+ *   • 3+ body combo crossing     → +5 xp per qualifying ripe-feed
  *
- * Persisted in localStorage so progression survives reloads. Implemented
- * as a module-singleton composable so multiple components can read and
- * mutate the same reactive state without prop-drilling.
+ * Rewards alternate between Heat (the "coins" track — most stages) and
+ * Star Matter (the rarer "showcase" track — every 10 stages). Both pay
+ * straight into `useSolKeeper` on claim, so the player sees the heat /
+ * matter bar tick up in the HUD the moment they tap Claim.
+ *
+ * Persisted to localStorage. The previous chaos-arena schema (skin offers,
+ * season expiry tied to honor track) has been stripped — Sol Keeper has
+ * no skin economy and no PvP honor track.
  */
 
 // ─── Tunables ───────────────────────────────────────────────────────────────
@@ -34,32 +28,29 @@ export const BP_XP_PER_STAGE = 100
 /** Battle pass season length in days. After this, all progress resets. */
 export const BP_SEASON_DAYS = 30
 
-export const BP_XP_CAMPAIGN_WIN = 50        // 1/2 of a stage
-export const BP_XP_LEADERBOARD_WIN = 25     // 1/4 of a stage
-export const BP_XP_LOSS = 12.5              // 1/8 of a stage
+/** XP from advancing one game-stage. Two game-stages = +1 BP level. */
+export const BP_XP_PER_GAME_STAGE = 50
+/** XP per ripe feed once the combo chain reaches 3 (every additional ripe at ≥3 also pays). */
+export const BP_XP_PER_COMBO = 5
+/** Combo length that starts paying out. */
+export const BP_COMBO_THRESHOLD = 3
 
-/** 1-based stage indices that grant a skin instead of coins. Spaced every
- *  10 levels across the extended 100-stage track so the season still has
- *  the same "skin every ten levels" cadence players learned in the 50-
- *  stage version. */
-export const BP_SKIN_STAGES = new Set<number>([10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
+/** 1-based stage indices that grant a Star Matter chunk instead of Heat.
+ *  Spaced every 10 levels — same cadence the legacy "skin every 10" used,
+ *  reframed as the rarer prestige currency. */
+export const BP_MATTER_STAGES = new Set<number>([10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
 
-const STORAGE_KEY = 'spinner_battle_pass'
+const STORAGE_KEY = 'sol_keeper_battle_pass_v1'
 
 // ─── State ──────────────────────────────────────────────────────────────────
 
 interface BattlePassState {
   /** XP banked into the currently-filling stage (0 .. BP_XP_PER_STAGE). */
   xp: number
-  /** Number of stages that have fully completed — i.e. are unlocked
-   *  and eligible to be claimed. 0 means nothing unlocked yet. */
+  /** Number of stages that have fully completed. */
   unlockedStages: number
   /** 1-based stage indices the player has already collected. */
   claimedStages: number[]
-  /** Maps stage number → skin model id for skin stages that were claimed. */
-  claimedSkins: Record<number, SpinnerModelId>
-  /** Maps stage number → skin model id previewed (persisted across sessions). */
-  offeredSkins: Record<number, SpinnerModelId>
   /** ISO date string when the current season started (first XP gain). */
   seasonStartedAt: string | null
 }
@@ -68,12 +59,9 @@ const defaultState = (): BattlePassState => ({
   xp: 0,
   unlockedStages: 0,
   claimedStages: [],
-  claimedSkins: {},
-  offeredSkins: {},
   seasonStartedAt: null
 })
 
-/** Days remaining until the current season resets (null if no season active). */
 const daysUntilSeasonReset = (startedAt: string | null): number | null => {
   if (!startedAt) return null
   const start = new Date(startedAt).getTime()
@@ -91,39 +79,29 @@ const isSeasonExpired = (startedAt: string | null): boolean => {
 const loadState = (): BattlePassState => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (
-        typeof parsed?.xp === 'number' &&
-        typeof parsed?.unlockedStages === 'number' &&
-        Array.isArray(parsed?.claimedStages)
-      ) {
-        const loaded: BattlePassState = {
-          xp: parsed.xp,
-          unlockedStages: Math.max(0, Math.min(BP_TOTAL_STAGES, parsed.unlockedStages)),
-          claimedStages: parsed.claimedStages.filter(
-            (n: unknown) => typeof n === 'number' && n >= 1 && n <= BP_TOTAL_STAGES
-          ),
-          claimedSkins: parsed.claimedSkins ?? {},
-          offeredSkins: parsed.offeredSkins ?? {},
-          seasonStartedAt: parsed.seasonStartedAt ?? null
-        }
-        // Season expired — reset everything
-        if (isSeasonExpired(loaded.seasonStartedAt)) {
-          seasonResetPending = true
-          return defaultState()
-        }
-        return loaded
-      }
+    if (!raw) return defaultState()
+    const parsed = JSON.parse(raw)
+    if (
+      typeof parsed?.xp !== 'number' ||
+      typeof parsed?.unlockedStages !== 'number' ||
+      !Array.isArray(parsed?.claimedStages)
+    ) {
+      return defaultState()
     }
-  } catch { /* fall through */
+    const loaded: BattlePassState = {
+      xp: parsed.xp,
+      unlockedStages: Math.max(0, Math.min(BP_TOTAL_STAGES, parsed.unlockedStages)),
+      claimedStages: parsed.claimedStages.filter(
+        (n: unknown) => typeof n === 'number' && n >= 1 && n <= BP_TOTAL_STAGES
+      ),
+      seasonStartedAt: parsed.seasonStartedAt ?? null
+    }
+    if (isSeasonExpired(loaded.seasonStartedAt)) return defaultState()
+    return loaded
+  } catch {
+    return defaultState()
   }
-  return defaultState()
 }
-
-/** Deferred flag — honor track reset runs on first composable access
- *  to avoid circular import issues at module load time. */
-let seasonResetPending = false
 
 const state: Ref<BattlePassState> = ref(loadState())
 
@@ -134,59 +112,44 @@ const saveState = () => {
 // ─── Reward Table ───────────────────────────────────────────────────────────
 
 /**
- * Coin value for a given stage — piecewise linear: 30 → 300 across
- * stages 1..50, then 300 → 500 across stages 50..100. Rounded to the
- * nearest 5 for tidy UI numbers. Skin stages return the same coin value
- * as a *fallback* if no unowned skin remains.
+ * Heat reward for a given stage — piecewise linear so the early stages
+ * feel meaningful at low cumulative-heat scales, and the late stages
+ * still matter to a player sitting on millions. Rounded to the nearest
+ * 10 for tidy UI numbers.
+ *   stages 1..50:   200  → 5_000
+ *   stages 50..100: 5_000 → 25_000
  */
-export const bpCoinReward = (stage: number): number => {
+export const bpHeatReward = (stage: number): number => {
   const clamped = Math.max(1, Math.min(BP_TOTAL_STAGES, stage))
   const raw = clamped <= 50
-    ? 30 + ((clamped - 1) * 270) / 49
-    : 300 + ((clamped - 50) * 200) / 50
-  return Math.round(raw / 5) * 5
+    ? 200 + ((clamped - 1) * (5_000 - 200)) / 49
+    : 5_000 + ((clamped - 50) * (25_000 - 5_000)) / 50
+  return Math.round(raw / 10) * 10
 }
 
-export const bpIsSkinStage = (stage: number): boolean => BP_SKIN_STAGES.has(stage)
-
-// ─── Skin helpers (mirrors DailyRewards) ───────────────────────────────────
-
-const unownedSkinModelIds = (): SpinnerModelId[] => {
-  const result: SpinnerModelId[] = []
-  const seen = new Set<string>()
-  for (const topPartId of Object.keys(SKINS_PER_TOP) as TopPartId[]) {
-    for (const modelId of SKINS_PER_TOP[topPartId]) {
-      if (seen.has(modelId)) continue
-      seen.add(modelId)
-      if (SPECIAL_SKINS.has(modelId)) continue
-      if (!isModelFullyOwned(modelId)) result.push(modelId)
-    }
-  }
-  return result
+/**
+ * Star Matter reward for the prestige stages. Linear ramp 2 → 10 across
+ * the 10 matter stages so a full season pays ~60 matter — meaningful but
+ * not a substitute for the Cosmic Forge / Big Probe Station grind from
+ * normal play.
+ */
+export const bpMatterReward = (stage: number): number => {
+  if (!BP_MATTER_STAGES.has(stage)) return 0
+  const idx = [...BP_MATTER_STAGES].sort((a, b) => a - b).indexOf(stage)
+  return 2 + idx
 }
 
-const unlockSkinEverywhere = (modelId: SpinnerModelId) => {
-  for (const topPartId of Object.keys(SKINS_PER_TOP) as TopPartId[]) {
-    if (SKINS_PER_TOP[topPartId].includes(modelId)) {
-      buySkin(topPartId, modelId)
-    }
-  }
-}
+export const bpIsMatterStage = (stage: number): boolean => BP_MATTER_STAGES.has(stage)
 
 // ─── XP accrual ─────────────────────────────────────────────────────────────
 
-const { addCoins } = useSpinnerConfig()
-
 const addXp = (amount: number) => {
   if (amount <= 0) return
-  // Check for season expiry before adding XP
   if (isSeasonExpired(state.value.seasonStartedAt)) {
     state.value = defaultState()
-    resetHonorTrack()
     saveState()
   }
   if (state.value.unlockedStages >= BP_TOTAL_STAGES) return
-  // Start season clock on first XP gain
   if (!state.value.seasonStartedAt) {
     state.value.seasonStartedAt = new Date().toISOString().slice(0, 10)
   }
@@ -202,51 +165,37 @@ const addXp = (amount: number) => {
   saveState()
 }
 
-const awardCampaignWin = () => addXp(BP_XP_CAMPAIGN_WIN)
-const awardLeaderboardWin = () => addXp(BP_XP_LEADERBOARD_WIN)
-const awardLoss = () => addXp(BP_XP_LOSS)
+/** XP for advancing one game stage. Called from useSolKeeper.addHeat
+ *  every time the heat-bar cascade rolls the stage counter up. */
+export const awardStageAdvance = () => addXp(BP_XP_PER_GAME_STAGE)
+
+/** XP for a ripe-feed that lands while the combo chain is at or above
+ *  BP_COMBO_THRESHOLD. Called from useSolKeeper.registerRipeFeed. */
+export const awardCombo = () => addXp(BP_XP_PER_COMBO)
 
 // ─── Claim ──────────────────────────────────────────────────────────────────
 
 export interface ClaimResult {
   stage: number
-  coins: number
-  skin: SpinnerModelId | null
+  heat: number
+  matter: number
 }
 
-const claimStage = (stage: number, offeredSkin?: SpinnerModelId | null): ClaimResult | null => {
+const claimStage = (stage: number): ClaimResult | null => {
   if (stage < 1 || stage > BP_TOTAL_STAGES) return null
   if (stage > state.value.unlockedStages) return null
   if (state.value.claimedStages.includes(stage)) return null
 
-  let coins = 0
-  let skin: SpinnerModelId | null = null
+  const sk = useSolKeeper()
+  const heat = bpIsMatterStage(stage) ? 0 : bpHeatReward(stage)
+  const matter = bpIsMatterStage(stage) ? bpMatterReward(stage) : 0
 
-  if (bpIsSkinStage(stage)) {
-    const pool = unownedSkinModelIds()
-    // Prefer the skin that was previewed to the player, fall back to random
-    if (offeredSkin && pool.includes(offeredSkin)) {
-      skin = offeredSkin
-    } else if (pool.length > 0) {
-      skin = pool[Math.floor(Math.random() * pool.length)]!
-    }
-    if (skin) {
-      unlockSkinEverywhere(skin)
-      state.value.claimedSkins = { ...state.value.claimedSkins, [stage]: skin }
-    } else {
-      // Fallback: no unowned skins left — pay out the linear coin value
-      // so the stage slot never feels empty.
-      coins = bpCoinReward(stage)
-      addCoins(coins)
-    }
-  } else {
-    coins = bpCoinReward(stage)
-    addCoins(coins)
-  }
+  if (heat > 0) sk.addHeat(heat)
+  if (matter > 0) sk.addStarMatter(matter)
 
   state.value.claimedStages = [...state.value.claimedStages, stage]
   saveState()
-  return { stage, coins, skin }
+  return { stage, heat, matter }
 }
 
 // ─── Derived ────────────────────────────────────────────────────────────────
@@ -256,8 +205,7 @@ const unlockedStages = computed(() => state.value.unlockedStages)
 const claimedStages = computed(() => state.value.claimedStages)
 const isMaxed = computed(() => state.value.unlockedStages >= BP_TOTAL_STAGES)
 
-/** Number of stages that are unlocked but not yet claimed — drives the
- *  "collect me" bounce hint on the open-modal button. */
+/** Stages unlocked but not yet claimed — drives the "collect me" bounce hint. */
 const pendingClaimCount = computed(() => {
   let n = 0
   for (let i = 1; i <= state.value.unlockedStages; i++) {
@@ -268,7 +216,6 @@ const pendingClaimCount = computed(() => {
 
 const hasUnclaimedReward = computed(() => pendingClaimCount.value > 0)
 
-/** Days remaining until the season resets (null if season not started yet). */
 const daysUntilReset = computed(() => daysUntilSeasonReset(state.value.seasonStartedAt))
 
 const isStageClaimed = (stage: number): boolean =>
@@ -280,12 +227,6 @@ const isStageUnlocked = (stage: number): boolean =>
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 export default function useBattlePass() {
-  // Flush deferred honor-track reset (avoids circular import at module load)
-  if (seasonResetPending) {
-    seasonResetPending = false
-    resetHonorTrack()
-    saveState()
-  }
   return {
     // state
     state,
@@ -296,21 +237,15 @@ export default function useBattlePass() {
     hasUnclaimedReward,
     pendingClaimCount,
     daysUntilReset,
-    claimedSkins: computed(() => state.value.claimedSkins),
-    persistedOffers: computed(() => state.value.offeredSkins),
-    saveOfferedSkins: (offers: Record<number, SpinnerModelId>) => {
-      state.value.offeredSkins = offers
-      saveState()
-    },
     // queries
     isStageClaimed,
     isStageUnlocked,
-    bpCoinReward,
-    bpIsSkinStage,
-    // xp events (called by game-over handlers)
-    awardCampaignWin,
-    awardLeaderboardWin,
-    awardLoss,
+    bpHeatReward,
+    bpMatterReward,
+    bpIsMatterStage,
+    // xp events (called by gameplay hooks)
+    awardStageAdvance,
+    awardCombo,
     // claiming
     claimStage
   }

@@ -160,7 +160,8 @@
       "Bash(timeout 10 pnpm vite --port 5193)",
       "Bash(timeout 12 pnpm vite --port 5194)",
       "Bash(timeout 14 pnpm vite --port 5195)",
-      "Bash(pnpm vite *)"
+      "Bash(pnpm vite *)",
+      "Bash(echo \"exit: $?\")"
     ]
   },
   "defaultMode": "auto"

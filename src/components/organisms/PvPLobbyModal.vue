@@ -3,7 +3,6 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import FModal from '@/components/molecules/FModal.vue'
 import usePVP, { type PvPGameConfig } from '@/use/usePVP'
-import usePvpStats from '@/use/usePvpStats'
 import { ARENA_TYPES, type ArenaType } from '@/use/useSpinnerCampaign'
 import useSpinnerConfig from '@/use/useSpinnerConfig'
 import useSpinnerCampaign from '@/use/useSpinnerCampaign'
@@ -46,7 +45,12 @@ const {
   leavePvP
 } = usePVP()
 
-const { wins, losses, honor } = usePvpStats()
+// PvP stats removed with the chaos-arena cleanup — Sol Keeper has no
+// honor / wins / losses tracker. This dead view (not routed) keeps
+// placeholder zeros so the template still binds without errors.
+const wins = computed(() => 0)
+const losses = computed(() => 0)
+const honor = computed(() => 0)
 
 const whatsappShareLink = computed(() => {
   if (!inviteLink.value) return ''

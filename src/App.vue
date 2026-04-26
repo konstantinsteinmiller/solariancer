@@ -8,7 +8,6 @@ import { useExtensionGuard } from '@/use/useExtensionGuard'
 import { windowWidth, windowHeight } from '@/use/useUser'
 import useAssets from '@/use/useAssets'
 import FLogoProgress from '@/components/atoms/FLogoProgress.vue'
-import FPerfMeter from '@/components/atoms/FPerfMeter.vue'
 import { useCrazyMuteSync } from '@/use/useCrazyMuteSync'
 import { isCrazyWeb, isWaveDash, isItch, isGlitch, orientation } from '@/use/useUser'
 import { glitchLicenseStatus } from '@/use/useGlitchLicense'
@@ -125,7 +124,6 @@ const isGlitchDenied = computed(() => isGlitch && glitchLicenseStatus.value === 
 <template lang="pug">
   div(v-if="allowedToShowOnCrazyGames || allowedToShowOnWaveDash || allowedToShowOnItch || allowedToShowOnGlitch" id="app-root" class="h-screen h-dvh w-screen app-container root-protection game-ui-immune")
     FLogoProgress
-    FPerfMeter(:offset-y="52")
     RouterView
 
   div.relative.w-full.h-full(v-else-if="isGlitchDenied")

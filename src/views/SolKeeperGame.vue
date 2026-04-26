@@ -3,6 +3,8 @@ import { onMounted, onUnmounted, ref, computed } from 'vue'
 import FIconButton from '@/components/atoms/FIconButton.vue'
 import FButton from '@/components/atoms/FButton.vue'
 import FMuteButton from '@/components/atoms/FMuteButton.vue'
+import FPerfMeter from '@/components/atoms/FPerfMeter.vue'
+import BattlePass from '@/components/organisms/BattlePass.vue'
 import SolHud from '@/components/organisms/SolHud.vue'
 import SolUpgradeModal from '@/components/organisms/SolUpgradeModal.vue'
 import SolTutorialOverlay from '@/components/organisms/SolTutorialOverlay.vue'
@@ -206,7 +208,13 @@ const showStarterHint = computed(() =>
         :class="[isCompactViewport ? 'scale-80 origin-bottom-left' : '']"
       )
         FMuteButton
-        FIconButton(type="secondary" size="md" img-src="/images/icons/settings-icon_128x128.webp" @click="openOptions")
+        //- Bottom row: Settings + Battle Pass side-by-side. The BP button
+        //- carries its own pending-claim chip and bounce hint, so giving
+        //- it a dedicated slot next to Settings keeps both reachable at
+        //- thumb height on portrait phones.
+        div.flex.items-end.gap-2
+          FIconButton(type="secondary" size="md" img-src="/images/icons/settings-icon_128x128.webp" @click="openOptions")
+          BattlePass
 
       div.pointer-events-auto.flex.items-end.gap-2(
         :class="[isCompactViewport ? 'scale-80 origin-bottom-right' : '']"
@@ -292,6 +300,11 @@ const showStarterHint = computed(() =>
     //- Modals
     SolUpgradeModal(v-model="sk.isUpgradeModalOpen.value")
     OptionsModal(v-if="sk.isOptionsOpen.value" :is-open="sk.isOptionsOpen.value" @close="sk.isOptionsOpen.value = false")
+
+    //- Perf overlay — only renders when `localStorage.fps === 'true'`. Mounted
+    //- here (not in App.vue or via SaveManager) so the flag stays a developer
+    //- toggle and never round-trips to the cloud save.
+    FPerfMeter(:offset-y="52")
 </template>
 
 <style scoped lang="sass">

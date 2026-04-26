@@ -152,7 +152,7 @@ const doResetProgress = () => {
 
         hr(class="border-slate-600 my-0.5 md:my-1 pt-0")
 
-        //- Sol Keeper: opt-in Session badge in the HUD
+        //- Solariancer: opt-in Session badge in the HUD
         div(class="flex items-center justify-between !text-[10px]")
           span(class="!text-[10px] md:text-[12px] font-black text-white uppercase italic") {{ t('showSessionBadge') }}
           FSwitch(
@@ -162,7 +162,7 @@ const doResetProgress = () => {
 
         hr(class="border-slate-600 my-0.5 md:my-1 pt-0")
 
-        //- Sol Keeper: Sun skin override
+        //- Solariancer: Sun skin override
         div(class="z-[9] flex flex-col gap-2 scale-80 sm:scale-100")
           FSelect(
             class="!text-[10px] md:text-[12px]"
@@ -174,7 +174,7 @@ const doResetProgress = () => {
 
         hr(class="border-slate-600 my-0.5 md:my-1 pt-0")
 
-        //- Sol Keeper: Trail palette
+        //- Solariancer: Trail palette
         div(class="z-[8] flex flex-col gap-2 scale-80 sm:scale-100")
           FSelect(
             class="!text-[10px] md:text-[12px]"
@@ -291,7 +291,7 @@ en:
   audio: "Audio"
   language: "Language"
   showRulesModal: "Show Match Rules before game"
-  showSessionBadge: "Show Session Badge (Sol Keeper)"
+  showSessionBadge: "Show Session Badge (Solariancer)"
   sunSkin: "Sun Skin"
   trailPalette: "Trail Palette"
   resetCampaign: "Reset Game Progress"
@@ -319,7 +319,7 @@ de:
   audio: "Audio"
   language: "Sprache"
   showRulesModal: "Kampfregeln vor dem Spiel anzeigen"
-  showSessionBadge: "Session-Anzeige (Sol Keeper)"
+  showSessionBadge: "Session-Anzeige (Solariancer)"
   sunSkin: "Sonnenskin"
   trailPalette: "Spurfarbe"
   resetCampaign: "Spielfortschritt zurücksetzen"
