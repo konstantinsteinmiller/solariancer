@@ -10,6 +10,11 @@ export default defineConfig({
     },
     extensions: ['.mjs', '.js', '.ts', '.jsx', '.tsx', '.json', '.vue']
   },
+  define: {
+    // Match the Vite app config so source files that read APP_VERSION
+    // (e.g. useUser.ts) compile under vitest too.
+    APP_VERSION: JSON.stringify(process.env.npm_package_version ?? 'test')
+  },
   test: {
     globals: true,
     environment: 'jsdom',

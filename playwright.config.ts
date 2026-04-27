@@ -7,7 +7,7 @@ import { defineConfig, devices } from '@playwright/test'
 // dev-server juggling. Tests live under `tests/e2e/`.
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 90_000,
+  timeout: 180_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
@@ -16,7 +16,15 @@ export default defineConfig({
   reporter: 'list',
   use: {
     baseURL: 'http://localhost:5173',
-    trace: 'retain-on-failure'
+    trace: 'retain-on-failure',
+    // Use the full Chromium binary (not the chrome-headless-shell), and
+    // disable Crashpad — on this Windows machine the Crashpad pipe
+    // handshake fails ("TransactNamedPipe: Die Pipe wurde beendet"),
+    // hanging chrome after launch and timing out the test runner.
+    launchOptions: {
+      channel: 'chromium',
+      args: ['--disable-crash-reporter', '--no-crashpad', '--disable-gpu', '--disable-features=VizDisplayCompositor']
+    }
   },
   webServer: {
     command: 'pnpm dev',

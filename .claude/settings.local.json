@@ -162,7 +162,15 @@
       "Bash(timeout 14 pnpm vite --port 5195)",
       "Bash(pnpm vite *)",
       "Bash(echo \"exit: $?\")",
-      "Bash(npx playwright *)"
+      "Bash(npx playwright *)",
+      "Bash(echo \"DONE exit=$?\")",
+      "Bash(taskkill //F //IM chrome.exe)",
+      "Bash(taskkill //F //IM chrome-headless-shell.exe)",
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)",
+      "Bash(tasklist //FI \"IMAGENAME eq chrome.exe\")",
+      "Bash(tasklist //FI \"IMAGENAME eq chrome-headless-shell.exe\")",
+      "Bash(\"C:/Users/konst/AppData/Local/ms-playwright/chromium-1217/chrome-win64/chrome.exe\" --version)"
     ]
   },
   "defaultMode": "auto"

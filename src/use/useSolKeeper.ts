@@ -134,6 +134,12 @@ const sessionHeat: Ref<number> = ref(0)
 const isUpgradeModalOpen: Ref<boolean> = ref(false)
 const isOptionsOpen: Ref<boolean> = ref(false)
 const lastEarnedSplash: Ref<{ amount: number; at: number } | null> = ref(null)
+// Ripe-feed count for the CURRENT stage. Resets on stage advance. Drives
+// the stage-1 spawn pool unlock — once the player has actually fed three
+// ripe asteroids, the spawner adds the next size up (rocky) so the heat
+// curve picks up. Session-only on purpose: a refresh resets it, which
+// re-engages the auto-cook intro for asteroid-only spawns.
+const ripeFeedsThisStage: Ref<number> = ref(0)
 
 // ─── Mission temp buffs (session-only) ─────────────────────────────────────
 // Heat multiplier from a Mission reward. Active when performance.now() < tempHeatMultUntil.
@@ -242,21 +248,19 @@ const simSpeedMultiplier = computed(() => {
   return SIM_SLOW_FLOOR + (1 - SIM_SLOW_FLOOR) * t
 })
 
-/** True while the no-fail respawn rule is in force. Gated on per-stage
- *  progress (not lifetime heat) so a player who supernovas back to stage 1,
- *  or who just lets stage 1 reset between sessions, gets the safety net
- *  every time — not just once on the very first save. */
-const stage1NoFailActive = computed(() =>
-  state.value.stage === 1 && state.value.stageProgress < 500
-)
+/** True while the no-fail respawn rule is in force. Stage 1 IS the
+ *  onboarding sandbox — once the player advances to stage 2 the game
+ *  starts judging them. Until then, no body that flies off-screen or
+ *  belly-flops into the sun raw counts against the player. */
+const stage1NoFailActive = computed(() => state.value.stage === 1)
 
 /** True while the singularity preview ring + first-body arrow + auto-cook
- *  asteroid spawns should be active. Same per-stage gating as the no-fail
- *  rule — covers returning players, post-supernova restarts, and anyone
- *  who's still in the early-curve of stage 1, not just brand-new saves. */
-const stage1HintsActive = computed(() =>
-  state.value.stage === 1 && state.value.stageProgress < 200
-)
+ *  asteroid spawns should be active. Covers ALL of stage 1 — the previous
+ *  `stageProgress < 200` cutoff was arbitrary and had a fault zone
+ *  (200 ≤ heat < ~300) where new spawns reverted to the default sun-aimed
+ *  trajectory and crashed. Stage advance to 2 is the only "graduated"
+ *  signal we trust. */
+const stage1HintsActive = computed(() => state.value.stage === 1)
 
 /** True while the upgrade-button bounce should be suppressed (player has
  *  not yet completed the loop once, so the menu is meaningless to them). */
@@ -435,6 +439,10 @@ const addHeat = (amount: number) => {
   while (state.value.stageProgress >= goal) {
     state.value.stageProgress -= goal
     state.value.stage += 1
+    // Reset the per-stage ripe-feed count so the stage-1-style "three
+    // ripe feeds → unlock next-bigger body" pattern can apply per stage
+    // if we ever want it on later stages too.
+    ripeFeedsThisStage.value = 0
     if (state.value.stage > state.value.highestStage) {
       state.value.highestStage = state.value.stage
     }
@@ -559,6 +567,7 @@ const registerRipeFeed = (): { combo: number; multiplier: number; rolledThreshol
   comboBuffUntil.value = now + COMBO_BUFF_DURATION * 1000
 
   state.value.totalRipeFeeds += 1
+  ripeFeedsThisStage.value += 1
   lastRipeFeedAt.value = now
   // First-combo onboarding hit — when the chain crosses the 3-body
   // threshold for the very first time in this player's lifetime, queue a
@@ -695,6 +704,7 @@ export default function useSolKeeper() {
     stage1HintsActive,
     upgradeHintAllowed,
     slowMoUntil,
-    lastRipeFeedAt
+    lastRipeFeedAt,
+    ripeFeedsThisStage
   }
 }

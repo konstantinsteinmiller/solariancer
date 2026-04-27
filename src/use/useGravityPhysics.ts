@@ -17,7 +17,7 @@ const ZONE_TICK_SECONDS = 0.5     // heat awarded twice per second while in zone
 const HEAT_ZONE_INNER_GAP = 24    // distance from sun surface to inner ring edge
 const HEAT_ZONE_BASE_WIDTH = 90   // base ring width before Zone Expansion upgrades
 const COOK_TIME = 10              // seconds in zone needed to mark a body "ripe"
-const ZONE_WARMUP = 3             // seconds in (regular) heat zone before any heat is generated
+const ZONE_WARMUP = 2             // seconds in (regular) heat zone before any heat is generated (was 3s; tightened so the heat bar starts moving sooner)
 const ZONE_HEAT_TICKS_MAX = 3     // a body produces at most this many passive heat ticks; after that, only ripe-consume earns
 // Close-to-Sun zone — narrow band right against the sun surface. High risk
 // (orbital speeds are huge, easy to crash), high reward (cooks faster and
@@ -260,25 +260,23 @@ const randRange = (a: number, b: number) => a + Math.random() * (b - a)
 
 // ─── Stage-1 onboarding spawn state ───────────────────────────────────────
 //
-// - `stage1AutoCookSpawned` counts how many edge-spawn asteroids have been
-//   given the auto-cook orbital trajectory. The counter resets in
-//   initWorld() (= start of a fresh session) so a returning player still
-//   gets a hand-off-the-wheel intro on the first few bodies.
-// - `stage1AutoCookBaseAngle` and `stage1AutoCookSign` lock the three
-//   intro asteroids to the SAME orbital direction with 120° angular
-//   spacing. Without this, random CW / CCW + random θ would put bodies
-//   on intersecting orbits — they collide (restitution 0.7 = 30 %
-//   energy loss per hit) and decay straight into the sun. Same period +
-//   constant angular separation means they share an orbital lane and
-//   never catch each other.
+// - `stage1AutoCookSign` locks every auto-cook spawn to the SAME orbital
+//   direction so they share an orbital lane (same period). Random CW /
+//   CCW would put bodies on intersecting orbits — they'd collide
+//   (restitution 0.7 = 30 % energy loss per hit) and decay straight into
+//   the sun. With same direction + same period, two bodies that start at
+//   different θ stay at constant angular separation forever — they
+//   literally cannot catch each other. Reseeded in initWorld() so each
+//   session feels fresh.
+// - All asteroid spawns made while `stage1HintsActive` is on get the
+//   auto-cook trajectory — not just the first N. Otherwise the moment
+//   the original 3 die / are dragged in, driveSpawning fills the slots
+//   with default sun-aimed trajectories that crash straight in.
 // - `pendingRespawns` is incremented in physicsStep when a body dies from
 //   the sun/eject under the no-fail rule. driveSpawning drains the queue,
 //   one body per tick, so the screen briefly empties before refilling —
 //   reads as natural "another asteroid drifts in" rather than instant
 //   teleport.
-const STAGE1_AUTOCOOK_COUNT = 3
-let stage1AutoCookSpawned = 0
-let stage1AutoCookBaseAngle = 0
 let stage1AutoCookSign: 1 | -1 = 1
 let pendingRespawns = 0
 
@@ -289,8 +287,10 @@ const spawnBody = (kind: BodyKind, opts?: { fromEdge?: boolean; x?: number; y?: 
   // `spawnAt` calls also respect the smaller viewport ceiling.
   if (sk.state.value.stage === 1) {
     if (bodies.value.length >= currentBodyCap()) return null
-    if (stage1SmallBodyOnly() && kind !== 'asteroid') return null
   }
+  // Per-stage spawn pool gate (handles both stage 1 and stage 2 — stage
+  // 3+ allows everything). See stageKindAllowed for the full ladder.
+  if (!stageKindAllowed(kind)) return null
   const params = kindParams(kind)
   // Scale body radius down on small viewports so a gas giant doesn't fill
   // half a phone screen. Mass stays unchanged — it's a balance value, not a
@@ -317,19 +317,16 @@ const spawnBody = (kind: BodyKind, opts?: { fromEdge?: boolean; x?: number; y?: 
     const cx = W / 2
     const cy = H / 2
 
-    // Stage-1 auto-cook trajectory — for the first STAGE1_AUTOCOOK_COUNT
-    // edge spawns of an asteroid while the player has 0 ripe feeds, plant
-    // the body in a slightly elliptical orbit through the heat zone so it
-    // ripens itself. This carries the player through the "wait, what is
-    // ripening?" beat before they ever have to control anything; the
-    // ripe body still has to be dragged into the sun, which is the
-    // skill they actually need to learn.
-    const useAutoCook =
-      sk.stage1HintsActive.value
-      && kind === 'asteroid'
-      && stage1AutoCookSpawned < STAGE1_AUTOCOOK_COUNT
+    // Stage-1 auto-cook trajectory — every asteroid edge-spawn while
+    // `stage1HintsActive` is on (= stage 1, stageProgress < 200) lands
+    // on a slightly elliptical orbit through the heat zone so it ripens
+    // itself. The player still has to drag ripe bodies into the sun;
+    // they just don't have to fight for the cooking step. As soon as
+    // stageProgress crosses the threshold, spawns return to the default
+    // edge-drift trajectory — the player has to do the whole loop
+    // themselves from then on.
+    const useAutoCook = sk.stage1HintsActive.value && kind === 'asteroid'
     if (useAutoCook) {
-      stage1AutoCookSpawned++
       const ws = worldScale.value
       const ws3 = ws * ws * ws
       // Aim for the heat-zone mid radius as our orbital perigee — the
@@ -347,14 +344,41 @@ const spawnBody = (kind: BodyKind, opts?: { fromEdge?: boolean; x?: number; y?: 
       const massFactor = Math.max(1, Math.sqrt(params.mass))
       const mu = (G * SUN_MASS * ws3) / massFactor
 
-      // Spread the three intro asteroids 120° apart on the SAME orbital
-      // direction, jittered slightly so they don't look mechanically
-      // perfect. Same period + fixed angular separation = no inter-body
-      // collisions and no energy decay into the sun.
-      const theta =
-        stage1AutoCookBaseAngle
-        + (stage1AutoCookSpawned - 1) * (Math.PI * 2 / 3)
-        + (Math.random() - 0.5) * 0.25
+      // Spawn angle: pick the candidate that maximises the minimum
+      // angular separation from existing live bodies' CURRENT positions.
+      // Same direction + same r_a/r_p means orbital period is identical,
+      // so once we land far from everyone, we stay far from everyone —
+      // collisions are physically impossible. Without this, random θ
+      // could occasionally place two new spawns at near-identical angles
+      // and they'd graze each other forever at perigee.
+      let theta = Math.random() * Math.PI * 2
+      {
+        const liveAngles: number[] = []
+        for (const live of bodies.value) {
+          if (live.dead) continue
+          liveAngles.push(Math.atan2(live.y - cy, live.x - cx))
+        }
+        if (liveAngles.length > 0) {
+          let bestTheta = theta
+          let bestMin = -1
+          // 8 candidates is plenty — the angular space is small (2π) and
+          // the existing bodies are typically ≤5.
+          for (let attempt = 0; attempt < 8; attempt++) {
+            const t = Math.random() * Math.PI * 2
+            let minDelta = Math.PI
+            for (const a of liveAngles) {
+              let d = Math.abs(((t - a + Math.PI) % (Math.PI * 2)) - Math.PI)
+              if (d > Math.PI) d = Math.PI * 2 - d
+              if (d < minDelta) minDelta = d
+            }
+            if (minDelta > bestMin) {
+              bestMin = minDelta
+              bestTheta = t
+            }
+          }
+          theta = bestTheta
+        }
+      }
       const cosT = Math.cos(theta)
       const sinT = Math.sin(theta)
       const margin = WORLD_PADDING * 0.5
@@ -368,20 +392,27 @@ const spawnBody = (kind: BodyKind, opts?: { fromEdge?: boolean; x?: number; y?: 
         : sinT < 0
           ? (-margin - cy) / sinT
           : Infinity
-      // Distance from sun at which the radial line first exits the
-      // viewport. Clamp the apogee to at most ~1.6× ringMid so the
-      // ellipse stays tight enough that the body returns to the heat
-      // zone every few seconds — on a portrait phone the vertical exit
-      // can be huge otherwise.
+      // Apogee = JUST outside the viewport on this radial line. The body
+      // visibly drifts in from off-screen instead of popping into existence
+      // mid-canvas. We compute v_apo from this exact r_a (vis-viva) so
+      // the orbit is energy-correct at the spawn point — perigee lands
+      // dead-on `ringMid` regardless of viewport shape. Without this, a
+      // wider viewport would have the body spawn with too much velocity
+      // for its actual radius and either escape or whip past perigee
+      // into the sun.
+      //
+      // Clamp r_a to at least 1.4× ringMid so micro-viewports (where
+      // exitR < ringMid) still produce a reasonable ellipse — without
+      // this, r_a < r_p inverts the vis-viva math and the body shoots
+      // away from the sun.
       const exitR = Math.min(sxOut, syOut)
-      const r_a = Math.min(exitR + 20, ringMid * 1.6)
+      const r_a = Math.max(exitR + 20, ringMid * 1.4)
       const r_p = ringMid
       const vApo = Math.sqrt((mu * 2 * r_p) / (r_a * (r_a + r_p)))
 
       x = cx + cosT * r_a
       y = cy + sinT * r_a
-      // All three intro asteroids share the same direction so they ride
-      // the same orbital lane and never collide with each other.
+      // Tangent at apogee, in the locked session direction.
       vx = -sinT * vApo * stage1AutoCookSign
       vy = cosT * vApo * stage1AutoCookSign
     } else {
@@ -1184,6 +1215,27 @@ const physicsStep = (dt: number) => {
       if (factor < RIPEN_MIN_FACTOR) factor = RIPEN_MIN_FACTOR
       else if (factor > RIPEN_MAX_FACTOR) factor = RIPEN_MAX_FACTOR
       if (b.inCloseZone) factor *= CLOSE_ZONE_COOK_BONUS
+      // Distance-into-zone bonus — bodies that orbit on the inner edge
+      // (closer to the sun = hotter) ripen MUCH faster. The thresholds
+      // are fractions of the heat-zone WIDTH measured from the inner
+      // edge:
+      //   • inner third (0.33 × width):  2.5× ripening — "near the sun"
+      //   • inner half  (0.50 × width):  1.7× ripening — middle orbit
+      //   • outer half:                  1.0× (baseline)
+      // Rewards player skill at threading bodies onto tighter orbits
+      // without making the outer ring useless.
+      if (b.inHeatZone) {
+        const zoneWidth = zoneOuter - zoneInner
+        if (zoneWidth > 0) {
+          const intoZone = distFromSun - zoneInner
+          if (intoZone < zoneWidth * (1 / 3)) factor *= 2.5
+          else if (intoZone < zoneWidth * 0.5) factor *= 1.7
+        }
+      }
+      // Stage-1 asteroids ripen 2.5× faster — gets the player to their
+      // first RIPE feed in roughly one orbit through the heat zone, so
+      // the loop's payoff lands inside the player's attention span.
+      factor *= stage1CookMult(b)
       const prevCooked = b.cookedSeconds
       b.cookedSeconds += dt * factor
       // Crowd bonus counts ALL cooking bodies — close-zone flybys help.
@@ -1220,12 +1272,22 @@ const physicsStep = (dt: number) => {
     const flare = eventFlareMultiplier.value
     const combo = sk.comboMultiplier.value
     let earned = 0
+    // Per-stage warmup tuning. The default 2s feels great by stage 4+,
+    // but the early stages need an even faster payoff so the heat bar
+    // visibly responds while the player is still figuring the loop out.
+    //   • Stage 1: 1s (one full second of "I parked it in the ring"
+    //              before the bar starts moving — basically instant)
+    //   • Stage 2-3: 1.5s
+    //   • Stage 4+: ZONE_WARMUP (2s)
+    // Close zone keeps its own (CLOSE_ZONE_WARMUP) — high-risk band,
+    // earlier kick was already part of its appeal.
+    const stage = sk.state.value.stage
+    const stageWarmup = stage === 1 ? 1 : (stage <= 3 ? 1.5 : ZONE_WARMUP)
     for (const b of bodies.value) {
       if (b.dead || b.grabbed) continue
       const inAnyZone = b.inHeatZone || b.inCloseZone
       if (!inAnyZone) continue
-      // Close zone uses a shorter warmup (2s) than the regular zone (3s).
-      const warmup = b.inCloseZone ? CLOSE_ZONE_WARMUP : ZONE_WARMUP
+      const warmup = b.inCloseZone ? CLOSE_ZONE_WARMUP : stageWarmup
       if (b.cookedSeconds < warmup) continue
       if (b.zoneHeatTicks >= ZONE_HEAT_TICKS_MAX) continue
       // Hard-cap passive zone heat at 1 per body per tick. Real reward is
@@ -1355,22 +1417,52 @@ const currentBodyCap = (): number => {
 const stage1SmallBodyOnly = (): boolean =>
   sk.state.value.stage === 1 && sk.state.value.stageProgress < STAGE1_SMALL_BODY_PROGRESS
 
+/** Per-stage spawn pool gate. Drops the heaviest bodies from early-stage
+ *  pools so the player isn't asked to wrangle a gas giant before they've
+ *  upgraded the heat zone, the singularity, or any of the kit that makes
+ *  big planets workable.
+ *
+ *  Stage 1: asteroid only (always); + rocky after 3 ripe feeds in the
+ *           current stage.
+ *  Stage 2: asteroid / rocky / jewel only — the heat zone is still tight
+ *           and `ice` / `gas` are huge distractions that can fragment
+ *           the orbital pattern of smaller bodies. They re-enter the
+ *           pool from stage 3 onward.
+ *  Stage 3+: full distribution. */
+const STAGE1_ROCKY_UNLOCK_RIPE_FEEDS = 3
+const stageKindAllowed = (kind: BodyKind): boolean => {
+  const stage = sk.state.value.stage
+  if (stage === 1) {
+    if (kind === 'asteroid') return true
+    if (
+      kind === 'rocky'
+      && sk.ripeFeedsThisStage.value >= STAGE1_ROCKY_UNLOCK_RIPE_FEEDS
+      && !stage1SmallBodyOnly()
+    ) {
+      return true
+    }
+    return false
+  }
+  if (stage === 2) {
+    // Drop the two largest kinds — gas (mass 110, r 22-32) and ice
+    // (mass 48, r 14-22). Jewel stays in: it's small enough not to
+    // dominate the scene and pays well, which keeps the stage-2 ramp
+    // interesting after the player has just earned it.
+    return kind !== 'gas' && kind !== 'ice'
+  }
+  return true
+}
+
+/** Stage-1 cooking speed-up — asteroids ripen 2.5× faster while the
+ *  player is on stage 1. Lets onboarding asteroids reach RIPE in roughly
+ *  one orbit through the heat zone instead of two-plus. Other kinds
+ *  (and other stages) cook at the normal rate. */
+const STAGE1_ASTEROID_COOK_MULT = 2.5
+const stage1CookMult = (b: { kind: BodyKind }): number =>
+  sk.state.value.stage === 1 && b.kind === 'asteroid' ? STAGE1_ASTEROID_COOK_MULT : 1
+
 const driveSpawning = (dt: number) => {
   if (tutorialMode.value) return
-  // Whenever a fresh stage-1 episode begins (no bodies on screen +
-  // hints active), reseed the auto-cook orbital lane so the next 3
-  // edge spawns get the on-rails trajectory. Without this reset, a
-  // returning player who's already burned their counter in a previous
-  // session would never see auto-cook again.
-  if (
-    sk.stage1HintsActive.value
-    && bodies.value.length === 0
-    && stage1AutoCookSpawned >= STAGE1_AUTOCOOK_COUNT
-  ) {
-    stage1AutoCookSpawned = 0
-    stage1AutoCookBaseAngle = Math.random() * Math.PI * 2
-    stage1AutoCookSign = Math.random() < 0.5 ? 1 : -1
-  }
   // No-fail respawn drain — one body per spawner tick. Honours the
   // stage-1 cap because spawnBody() does that check itself; if the cap
   // is full the queued respawn just retries on the next interval.
@@ -1381,8 +1473,15 @@ const driveSpawning = (dt: number) => {
   if (spawnAccum >= SPAWN_INTERVAL) {
     spawnAccum = 0
     if (bodies.value.length >= currentBodyCap()) return
-    if (stage1SmallBodyOnly()) {
-      spawnBody('asteroid')
+    // Stage-1 spawn pool: asteroid-only until the player has fed 3 ripe
+    // ones, then asteroid + rocky. The user-facing pacing goal is "let
+    // them progress faster on the second half of stage 1 with a bigger
+    // body to push around".
+    if (sk.state.value.stage === 1) {
+      const rockyUnlocked = sk.ripeFeedsThisStage.value >= STAGE1_ROCKY_UNLOCK_RIPE_FEEDS
+      // 30 % rocky once unlocked; otherwise asteroid every time.
+      const kind: BodyKind = rockyUnlocked && Math.random() < 0.30 ? 'rocky' : 'asteroid'
+      spawnBody(kind)
       return
     }
     const magnetTilt = Math.min(0.25, sk.massMagnetLevel.value * 0.05)
@@ -1393,6 +1492,13 @@ const driveSpawning = (dt: number) => {
     else if (r < 0.92) kind = 'ice'
     else if (r < 0.985) kind = 'gas'
     else kind = 'jewel'
+    // Stage 2 redistributes the slots that would have gone to ice / gas
+    // into rocky and jewel (the surviving non-asteroid kinds). Without
+    // this, ~22 % of stage-2 spawn ticks would silently emit nothing
+    // because spawnBody rejects ice / gas at the gate.
+    if (!stageKindAllowed(kind)) {
+      kind = Math.random() < 0.7 ? 'rocky' : 'jewel'
+    }
     spawnBody(kind)
   }
 }
@@ -1407,13 +1513,10 @@ const initWorld = (w: number, h: number) => {
   popups.value.length = 0
   spawnAccum = 0
   heatTickAccum = 0
-  // Reset onboarding spawn counters so a fresh resize / re-mount still
-  // gives a returning player the auto-cook intro for the first asteroids
-  // they see this session. Reseed the shared orbital lane (base angle +
-  // CW/CCW) so consecutive sessions feel fresh while the three spawns
-  // within a session stay coherent.
-  stage1AutoCookSpawned = 0
-  stage1AutoCookBaseAngle = Math.random() * Math.PI * 2
+  // Reseed the shared orbital lane direction so consecutive sessions
+  // feel fresh. (All in-session spawns share this sign so they share
+  // an orbital period and can never collide — see the docs above
+  // `stage1AutoCookSign`.)
   stage1AutoCookSign = Math.random() < 0.5 ? 1 : -1
   pendingRespawns = 0
   // Seed scene with a ring of asteroids drifting in (skipped during tutorial)
@@ -1535,6 +1638,13 @@ const heatZoneInner = computed(() => computeZoneInner())
 export const heatZoneOuter = computed(() => computeZoneOuter())
 const closeZoneInner = computed(() => computeCloseZoneInner())
 const closeZoneOuter = computed(() => computeCloseZoneOuter())
+/** Live warmup threshold for the current stage — drives both the heat-tick
+ *  loop above AND the renderer's cooking progress bar so the bar appears
+ *  the moment heat starts ticking, not after the legacy 2 s default. */
+export const currentZoneWarmup = computed(() => {
+  const stage = sk.state.value.stage
+  return stage === 1 ? 1 : (stage <= 3 ? 1.5 : ZONE_WARMUP)
+})
 const singularityRange = computed(() => SINGULARITY_RANGE * worldScale.value * sk.attractionRadius.value)
 
 export const COOK_TIME_SECONDS = COOK_TIME

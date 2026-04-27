@@ -197,10 +197,9 @@ const observeOrbits = async (page: Page, totalSeconds: number, sampleMs = 250) =
 const reportAndAssert = (label: string, baseline: OrbitReport, tracks: Map<number, Track>) => {
   const asteroidTracks = [...tracks.values()].filter(t => t.kind === 'asteroid')
   asteroidTracks.sort((a, b) => a.id - b.id)
-  const first3 = asteroidTracks.slice(0, 3)
 
   console.log(`${label} tracked ${tracks.size} bodies (${asteroidTracks.length} asteroids)`)
-  for (const t of first3) {
+  for (const t of asteroidTracks) {
     const status = t.died
       ? `DIED@${t.died.t.toFixed(1)}s reason=${t.died.reason} cooked=${t.died.cooked.toFixed(1)}s`
       : `alive cooked=${t.maxCooked.toFixed(1)}s`
@@ -210,17 +209,27 @@ const reportAndAssert = (label: string, baseline: OrbitReport, tracks: Map<numbe
     )
   }
 
-  const crashed = first3.filter(t =>
+  // No raw sun-crashes anywhere in the run, ever. We're testing that the
+  // auto-cook trajectory holds for ALL stage-1 spawns — not just the
+  // first 3 — so that as bodies die and driveSpawning fills slots, the
+  // replacements ALSO orbit cleanly.
+  const crashedRaw = asteroidTracks.filter(t =>
     t.died && t.died.reason === 'sun' && t.died.cooked < 5
   )
-  expect(crashed, `${crashed.length}/${first3.length} auto-cook asteroids crashed into the sun before half-ripe`).toEqual([])
+  expect(
+    crashedRaw,
+    `${crashedRaw.length}/${asteroidTracks.length} asteroids crashed raw into the sun (deathReason=sun, cooked<5s)`
+  ).toEqual([])
 
-  const enteredZone = first3.filter(t => t.minDist <= baseline.zoneOuter && t.maxDist >= baseline.zoneInner)
-  expect(enteredZone.length, 'auto-cook asteroids should reach the heat zone at least once').toBeGreaterThanOrEqual(1)
+  // Sanity: at least one auto-cook body must reach the heat zone, or
+  // we're not actually testing cooking — we're testing "spawn at apogee
+  // then orbit out forever." Orbits should dip through the zone.
+  const enteredZone = asteroidTracks.filter(t => t.minDist <= baseline.zoneOuter && t.maxDist >= baseline.zoneInner)
+  expect(enteredZone.length, 'at least one asteroid should reach the heat zone').toBeGreaterThanOrEqual(1)
 }
 
 test.describe('stage-1 auto-cook orbit stability', () => {
-  test('fresh save: first 3 asteroids orbit through the heat zone without crashing', async ({ page }) => {
+  test('fresh save: every spawn orbits cleanly for 60 s', async ({ page }) => {
     page.on('console', (msg) => {
       if (msg.type() === 'error' || msg.type() === 'warning') {
         console.log(`[browser ${msg.type()}] ${msg.text()}`)
@@ -230,11 +239,14 @@ test.describe('stage-1 auto-cook orbit stability', () => {
     const baseline0 = await sample(page)
     const label = `[${VIEWPORT_LABEL(page)} fresh] world=${baseline0.worldW}×${baseline0.worldH} sunR=${baseline0.sunRadius.toFixed(1)} zone=[${baseline0.zoneInner.toFixed(1)}..${baseline0.zoneOuter.toFixed(1)}]`
     console.log(label)
-    const { baseline, tracks } = await observeOrbits(page, 25)
+    // 60 s is long enough to exercise driveSpawning fill-in (every 1.3 s
+    // wall, slowed to ~2.2 s by simSpeed) and ride past the first orbital
+    // period (~16 s wall × slow-mo).
+    const { baseline, tracks } = await observeOrbits(page, 60)
     reportAndAssert(label, baseline, tracks)
   })
 
-  test('returning player (prior ripe feeds + streak): auto-cook still kicks in', async ({ page }) => {
+  test('returning player (prior ripe feeds + streak): every spawn orbits cleanly for 60 s', async ({ page }) => {
     page.on('console', (msg) => {
       if (msg.type() === 'error' || msg.type() === 'warning') {
         console.log(`[browser ${msg.type()}] ${msg.text()}`)
@@ -251,7 +263,7 @@ test.describe('stage-1 auto-cook orbit stability', () => {
     const baseline0 = await sample(page)
     const label = `[${VIEWPORT_LABEL(page)} returning] world=${baseline0.worldW}×${baseline0.worldH} sunR=${baseline0.sunRadius.toFixed(1)} zone=[${baseline0.zoneInner.toFixed(1)}..${baseline0.zoneOuter.toFixed(1)}] ripeFeeds=${baseline0.totalRipeFeeds}`
     console.log(label)
-    const { baseline, tracks } = await observeOrbits(page, 25)
+    const { baseline, tracks } = await observeOrbits(page, 60)
     reportAndAssert(label, baseline, tracks)
   })
 })

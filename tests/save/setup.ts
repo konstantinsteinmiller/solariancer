@@ -47,3 +47,68 @@ const install = (): void => {
 
 install()
 beforeEach(install)
+
+// jsdom doesn't ship indexedDB. useUserDb opens 'user_db' on import,
+// which crashes any test that transitively pulls in useUser. Stub a
+// minimal no-op IDBOpenDBRequest so the open call returns something
+// truthy and the user code can just keep waiting forever for a state
+// it never needs in physics tests.
+// jsdom doesn't implement HTMLCanvasElement.getContext('2d') — it returns
+// null. The physics module bakes a per-body sprite via createRadialGradient
+// inside buildBodyPattern() at spawn time. Stub a context with no-op
+// drawing methods so spawnBody doesn't crash; we only care about the
+// physics simulation, not the rendered look.
+const _origGetContext = HTMLCanvasElement.prototype.getContext
+HTMLCanvasElement.prototype.getContext = function(type: string): any {
+  if (type !== '2d') return _origGetContext.call(this, type as any) as any
+  const noop = () => undefined
+  const gradient = { addColorStop: noop }
+  const ctx: any = {
+    canvas: this,
+    fillStyle: '',
+    strokeStyle: '',
+    globalAlpha: 1,
+    globalCompositeOperation: 'source-over',
+    lineWidth: 1,
+    lineCap: 'butt',
+    lineJoin: 'miter',
+    font: '10px sans-serif',
+    textAlign: 'start',
+    textBaseline: 'alphabetic',
+    save: noop, restore: noop,
+    translate: noop, rotate: noop, scale: noop, transform: noop, setTransform: noop, resetTransform: noop,
+    beginPath: noop, closePath: noop,
+    moveTo: noop, lineTo: noop, arc: noop, ellipse: noop, rect: noop, quadraticCurveTo: noop, bezierCurveTo: noop,
+    fill: noop, stroke: noop, clip: noop,
+    fillRect: noop, strokeRect: noop, clearRect: noop,
+    fillText: noop, strokeText: noop,
+    drawImage: noop,
+    createRadialGradient: () => gradient,
+    createLinearGradient: () => gradient,
+    createPattern: () => null,
+    setLineDash: noop, getLineDash: () => [],
+    measureText: () => ({ width: 0 })
+  }
+  return ctx
+}
+
+if (!('indexedDB' in window)) {
+  const noopRequest = () => {
+    const req = {
+      onsuccess: null as any,
+      onerror: null as any,
+      onupgradeneeded: null as any,
+      result: null,
+      addEventListener: () => {
+      },
+      removeEventListener: () => {
+      }
+    }
+    return req
+  }
+  Object.defineProperty(window, 'indexedDB', {
+    value: { open: () => noopRequest() },
+    configurable: true,
+    writable: true
+  })
+}

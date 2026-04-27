@@ -4,7 +4,7 @@ import useGravityPhysics, {
   singularityActive, singularityX, singularityY, bodies, particles, popups,
   sunPulse, screenShake, flashIntensity, sunShieldFlash, crowdBonusActive,
   probes, worldScale,
-  COOK_TIME_SECONDS, ZONE_WARMUP_SECONDS
+  COOK_TIME_SECONDS, currentZoneWarmup
 } from '@/use/useGravityPhysics'
 import useSolKeeper from '@/use/useSolKeeper'
 import useSolTutorial from '@/use/useSolTutorial'
@@ -504,12 +504,31 @@ export const renderScene = (canvas: HTMLCanvasElement, ctx: CanvasRenderingConte
     ctx.rotate(b.rotation)
     ctx.drawImage(b.pattern, -b.radius, -b.radius, size, size)
     ctx.restore()
+    // Ripe body tint — golden overlay on the silhouette ITSELF (not just
+    // around it). Drawn before the progress bar so the bar still reads
+    // clearly. `overlay` blends the body hue toward gold without flattening
+    // the surface detail painted by buildBodyPattern.
+    if (ripe) {
+      const ripePulse = 0.65 + 0.35 * Math.sin(time * 3 + b.id * 1.7)
+      ctx.save()
+      ctx.globalCompositeOperation = 'overlay'
+      ctx.globalAlpha = 0.35 + 0.25 * ripePulse
+      const tint = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.radius)
+      tint.addColorStop(0, 'rgba(255, 230, 140, 1)')
+      tint.addColorStop(1, 'rgba(255, 200, 80, 0.6)')
+      ctx.fillStyle = tint
+      ctx.beginPath()
+      ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
+    }
     // Cooking progress bar — appears once warm-up has passed (3s+), fills
     // from yellow (just-warmed) to dark red (ripe). Drawn in screen space
-    // (no body rotation) so it's always horizontal and readable.
-    if (b.cookedSeconds >= ZONE_WARMUP_SECONDS) {
-      const span = COOK_TIME_SECONDS - ZONE_WARMUP_SECONDS
-      const progress = Math.min(1, (b.cookedSeconds - ZONE_WARMUP_SECONDS) / span)
+    // (no body rotation) so it's always horizontal and readable. Hidden
+    // once the body is ripe — the new ripe indicator carries that state.
+    if (b.cookedSeconds >= currentZoneWarmup.value && !ripe) {
+      const span = COOK_TIME_SECONDS - currentZoneWarmup.value
+      const progress = Math.min(1, (b.cookedSeconds - currentZoneWarmup.value) / span)
       const barW = b.radius * 1.5
       const barH = 3
       const barX = b.x - barW / 2
@@ -523,16 +542,11 @@ export const renderScene = (canvas: HTMLCanvasElement, ctx: CanvasRenderingConte
       ctx.fillStyle = `hsl(${hue}, 95%, ${lightness}%)`
       ctx.fillRect(barX, barY, barW * progress, barH)
     }
-    // Ripe halo ring
+    // Ripe indicator — multi-layer halo + inward-sliding chevrons that
+    // read as "push me into the sun". Replaces the old single thin ring
+    // which got lost the moment the heat zone got crowded.
     if (ripe) {
-      ctx.save()
-      ctx.globalCompositeOperation = 'lighter'
-      ctx.strokeStyle = `rgba(255, 220, 120, ${0.5 + 0.4 * Math.sin(time * 6 + b.id)})`
-      ctx.lineWidth = 2
-      ctx.beginPath()
-      ctx.arc(b.x, b.y, b.radius + 4, 0, Math.PI * 2)
-      ctx.stroke()
-      ctx.restore()
+      drawRipeIndicator(ctx, b.x, b.y, b.radius, time, b.id)
     }
   }
 
@@ -679,6 +693,98 @@ let flareNextAt = 4
 let flareAngle = 0
 let flareStartedAt = -10
 const FLARE_DURATION = 1.0
+
+// ─── Ripe-body indicator ──────────────────────────────────────────────────
+//
+// A ripe body is the only thing that PAYS when fed to the sun, so it has
+// to be visually unmistakable in a crowded heat zone. The indicator
+// stacks four cues:
+//
+//   1. Wide gold aura — readable at small radius / on mobile, jumps off
+//      the page even when the body is overlapped by trails or particles.
+//   2. Sharp double ring (gold + bright inner) — locks the silhouette so
+//      the player can drag-target it precisely.
+//   3. Inward-sliding chevrons at 4 cardinal points — diegetic "push me
+//      INTO the sun" gesture; the chevrons travel from outside the aura
+//      toward the body and fade out, looping every ~1.6s. Slow rotation
+//      keeps them from looking mechanically static.
+//   4. Pulse phase is offset by `id * 1.7` so multiple ripe bodies don't
+//      strobe in unison at busy moments.
+const RIPE_CHEVRON_COUNT = 4
+const RIPE_CHEVRON_LOOP_S = 1.6
+const drawRipeIndicator = (
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, r: number, time: number, id: number
+) => {
+  const phase = time * 3 + id * 1.7
+  const pulse = 0.7 + 0.3 * Math.sin(phase)
+
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+
+  // (1) Wide gold aura — the readability cue at distance.
+  const auraR = r * 3.2
+  const aura = ctx.createRadialGradient(x, y, r * 0.95, x, y, auraR)
+  aura.addColorStop(0, `rgba(255, 200, 90, ${0.55 * pulse})`)
+  aura.addColorStop(0.55, `rgba(255, 175, 60, ${0.20 * pulse})`)
+  aura.addColorStop(1, 'rgba(255, 175, 60, 0)')
+  ctx.fillStyle = aura
+  ctx.beginPath()
+  ctx.arc(x, y, auraR, 0, Math.PI * 2)
+  ctx.fill()
+
+  // (2a) Sharp gold ring tight on the silhouette
+  ctx.strokeStyle = `rgba(255, 230, 140, ${0.55 + 0.35 * pulse})`
+  ctx.lineWidth = Math.max(2, r * 0.18)
+  ctx.beginPath()
+  ctx.arc(x, y, r + Math.max(4, r * 0.25), 0, Math.PI * 2)
+  ctx.stroke()
+
+  // (2b) Bright inner highlight ring — almost white, thinner
+  ctx.strokeStyle = `rgba(255, 245, 200, ${0.45 + 0.45 * pulse})`
+  ctx.lineWidth = 1.2
+  ctx.beginPath()
+  ctx.arc(x, y, r + 1.5, 0, Math.PI * 2)
+  ctx.stroke()
+
+  // (3) Inward-sliding chevrons — "push me into the sun" gesture
+  const phaseT = (time / RIPE_CHEVRON_LOOP_S) % 1
+  const startD = r * 2.8
+  const endD = r * 1.15
+  const baseAngle = time * 0.35    // slow rotation
+  const chevronLen = Math.max(5, r * 0.55)
+  const chevronWing = Math.max(3, r * 0.34)
+  for (let i = 0; i < RIPE_CHEVRON_COUNT; i++) {
+    const localT = (phaseT + i / RIPE_CHEVRON_COUNT) % 1
+    const d = startD + (endD - startD) * localT       // sliding INWARD
+    const fade = Math.sin(localT * Math.PI)            // fade in / out
+    const a = 0.85 * fade
+    if (a < 0.06) continue
+    const angle = baseAngle + (Math.PI * 2 * i) / RIPE_CHEVRON_COUNT
+    const cax = x + Math.cos(angle) * d
+    const cay = y + Math.sin(angle) * d
+    // Triangle pointing radially inward (toward x, y).
+    const fwx = -Math.cos(angle)
+    const fwy = -Math.sin(angle)
+    const px = -fwy
+    const py = fwx
+    ctx.fillStyle = `rgba(255, 230, 140, ${a})`
+    ctx.beginPath()
+    ctx.moveTo(cax + fwx * chevronLen, cay + fwy * chevronLen)
+    ctx.lineTo(
+      cax + px * chevronWing - fwx * chevronWing * 0.4,
+      cay + py * chevronWing - fwy * chevronWing * 0.4
+    )
+    ctx.lineTo(
+      cax - px * chevronWing - fwx * chevronWing * 0.4,
+      cay - py * chevronWing - fwy * chevronWing * 0.4
+    )
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  ctx.restore()
+}
 
 const drawSun = (ctx: CanvasRenderingContext2D, sunR: number, time: number) => {
   const cx = worldCenterX.value
