@@ -13,10 +13,12 @@ import { GAME_USER_LANGUAGE } from '@/utils/constants.ts'
 import { LANGUAGES } from '@/utils/enums'
 import { initCrazyGames, createCrazyGamesSaveStrategy, crazyLocale } from '@/use/useCrazyGames'
 import { initAds } from '@/use/useAds'
-import useUser, { isCrazyWeb, isWaveDash, isGlitch } from '@/use/useUser'
+import useUser, { isCrazyWeb, isWaveDash, isGlitch, isGameDistribution } from '@/use/useUser'
 import { isDebug } from '@/use/useMatch.ts'
 import { SaveManager } from '@/utils/save/SaveManager'
 import { LocalStorageStrategy } from '@/utils/save/LocalStorageStrategy'
+import { LocalBackupLayer, IndexedDBStore } from '@/utils/save/LocalBackupLayer'
+import { installSaveStatus } from '@/use/useSaveStatus'
 import type { SaveStrategy } from '@/utils/save/types'
 
 const bootstrap = async () => {
@@ -41,14 +43,50 @@ const bootstrap = async () => {
     ? ((await import('@/utils/glitchPlugin')).createGlitchSaveStrategy() ?? new LocalStorageStrategy())
     : isCrazyWeb
       ? createCrazyGamesSaveStrategy()
-      : new LocalStorageStrategy()
-  const saveManager = new SaveManager(strategy)
+      : isGameDistribution
+        ? ((await import('@/utils/gameDistributionPlugin')).createGameDistributionSaveStrategy() ?? new LocalStorageStrategy())
+        : new LocalStorageStrategy()
+
+  // IDB-backed second-tier persistence. Survives mobile-webview force-close
+  // when localStorage gets wiped (iPhone CG mobile especially) — see
+  // `MOBILE_PERSISTENCE.md`. Always-on regardless of the active strategy;
+  // it's a device-local safety net, never the primary cross-device sync.
+  const backupLayer = new LocalBackupLayer(new IndexedDBStore())
+
+  const saveManager = new SaveManager(strategy, backupLayer)
+  // Hook the strategy's hydrate notices into the reactive `saveDataVersion`
+  // signal so composables that read localStorage at module-init can
+  // re-load when a delayed cloud hydrate succeeds.
+  installSaveStatus(saveManager)
   await saveManager.init()
   ;(window as any).__saveManager = saveManager
+
+  // pagehide / visibilitychange flush — critical for mobile webviews where
+  // force-close kills the JS process before the strategy's debounce timer
+  // fires. Best-effort; the OS does not wait for the promise. See
+  // `MOBILE_PERSISTENCE.md` Part 2.
+  const flushOnHide = (): void => {
+    if (document.visibilityState === 'hidden') {
+      void saveManager.flush().catch((e) => {
+        console.warn('[save] visibilitychange flush failed', e)
+      })
+    }
+  }
+  document.addEventListener('visibilitychange', flushOnHide)
+  window.addEventListener('pagehide', () => {
+    void saveManager.flush().catch((e) => {
+      console.warn('[save] pagehide flush failed', e)
+    })
+  })
 
   if (isGlitch) {
     const { glitchPlugin } = await import('@/utils/glitchPlugin')
     glitchPlugin()
+  }
+  if (isGameDistribution) {
+    void import('@/utils/gameDistributionPlugin').then(({ gameDistributionPlugin }) => {
+      gameDistributionPlugin()
+    })
   }
 
   // If CrazyGames reported a supported player locale, persist it as the

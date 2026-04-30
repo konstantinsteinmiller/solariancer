@@ -1,11 +1,13 @@
 <script setup lang="ts">
 // Daily-feed streak. Hidden until the streak is at least 1 day.
 import { computed } from 'vue'
-import useSolKeeper from '@/use/useSolKeeper'
+import { useI18n } from 'vue-i18n'
+import useSolariancer from '@/use/useSolariancer'
 import SolBadge from '@/components/atoms/SolBadge.vue'
 
 const props = defineProps<{ compact?: boolean }>()
-const sk = useSolKeeper()
+const sk = useSolariancer()
+const { t } = useI18n()
 
 const streakDays = computed(() => sk.state.value.streak.days)
 const valueLabel = computed(() => `${streakDays.value}d`)
@@ -14,7 +16,7 @@ const valueLabel = computed(() => `${streakDays.value}d`)
 <template lang="pug">
   SolBadge(
     v-if="streakDays >= 1"
-    label="Streak"
+    :label="t('game.hud.streak')"
     :value="valueLabel"
     tone="orange"
     :compact="props.compact"

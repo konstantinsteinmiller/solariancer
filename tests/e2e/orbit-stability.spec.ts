@@ -129,14 +129,14 @@ const buildSave = (over: SaveOverrides = {}) => ({
 
 const setupGame = async (page: Page, overrides: SaveOverrides = {}) => {
   // First nav lets the SaveManager init + patch localStorage. Then we
-  // wipe localStorage to a known baseline and reload so the SolKeeper
+  // wipe localStorage to a known baseline and reload so the Solariancer
   // composable re-loads from the new store.
   await page.goto('/')
   await page.evaluate((save) => {
     localStorage.setItem('sol_state_v1', JSON.stringify(save))
   }, buildSave(overrides))
   await page.reload()
-  // Wait for the SolKeeperGame mount handles to land on window.
+  // Wait for the SolariancerGame mount handles to land on window.
   await page.waitForFunction(() => !!(window as any).__solPhysics)
 }
 

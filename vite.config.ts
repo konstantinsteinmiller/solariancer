@@ -67,32 +67,55 @@ export default defineConfig(({ mode, command }) => {
     'https://*.itch.io',
     'https://glitch.fun',
     'https://*.glitch.fun',
+    'https://gamedistribution.com',
+    'https://*.gamedistribution.com',
+    'https://y8.com',
+    'https://*.y8.com',
     'https://www.clarity.ms',
     'https://api.jsonbin.io'
   ]
-  // Extra per-directive sources that don't follow the blanket host pattern.
+  // GameDistribution-specific partner hosts. The GD SDK's main.min.js
+  // dynamically loads scripts from a fan-out of partner ad-tech / analytics
+  // CDNs at runtime — the GD-base whitelist above only covers gd.com itself.
+  // We open `https:` on the relevant directives for `isGameDistribution`
+  // builds only, keeping every other platform's CSP tight. See CSP.md.
+  const isGameDistribution = env.VITE_APP_GAME_DISTRIBUTION === 'true'
+  const isGlitch = env.VITE_APP_GLITCH === 'true'
+
   // Glitch.fun wraps the game in an iframe and injects inline bootstrap
   // scripts (Aegis bridge, heartbeat, feature-policy probes), so script-src
-  // needs 'unsafe-inline' for that platform specifically.
-  const isGlitch = env.VITE_APP_GLITCH === 'true'
+  // needs 'unsafe-inline' for that platform specifically. GameDistribution
+  // additionally needs 'unsafe-eval' (their bidder scripts use eval-style
+  // code) plus `https:` because the bidder waterfall is dynamic.
+  const scriptSrcExtra: string[] = []
+  if (isGlitch) scriptSrcExtra.push('\'unsafe-inline\'')
+  if (isGameDistribution) scriptSrcExtra.push('https:', '\'unsafe-inline\'', '\'unsafe-eval\'')
+
   const CSP_EXTRA: Record<string, string[]> = {
-    'script-src': isGlitch ? ['\'unsafe-inline\''] : [],
-    'style-src': ['\'unsafe-inline\''],
-    'img-src': ['data:'],
+    'script-src': scriptSrcExtra,
+    // GD's IAB TCF v2 consent wall pulls Google Fonts CSS at runtime —
+    // opening to `https:` for GD only.
+    'style-src': isGameDistribution ? ['https:', '\'unsafe-inline\''] : ['\'unsafe-inline\''],
+    // GD ad creatives come from arbitrary CDNs.
+    'img-src': isGameDistribution ? ['data:', 'https:', 'blob:'] : ['data:'],
     'connect-src': [
       'https://*.sentry.io',
       'wss://*.wavedash.com',
       'wss://0.peerjs.com',
       'https://0.peerjs.com',
       'https://getpantry.cloud',
-      'https://*.getpantry.cloud'
+      'https://*.getpantry.cloud',
+      ...(isGameDistribution ? ['https:', 'wss:'] : [])
     ],
-    'frame-src': [],
-    'media-src': []
+    'frame-src': isGameDistribution ? ['https:'] : [],
+    'media-src': isGameDistribution ? ['https:', 'blob:'] : [],
+    // Many partner CDNs serve webfonts. Without an explicit font-src directive
+    // the browser falls back to default-src ('self') and blocks every font.
+    'font-src': isGameDistribution ? ['https:', 'data:'] : ['data:']
   }
   const cspDirectives = [
     'default-src', 'script-src', 'style-src', 'img-src',
-    'connect-src', 'frame-src', 'media-src'
+    'connect-src', 'frame-src', 'media-src', 'font-src'
   ]
   const cspValue = cspDirectives.map(dir => {
     const extras = CSP_EXTRA[dir] ?? []

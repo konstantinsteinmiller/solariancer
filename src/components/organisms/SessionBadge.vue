@@ -2,11 +2,13 @@
 // "Session" = total Heat earned since this session began (page load /
 // reload). Resets on refresh; not persisted. Useful for short-run scoring
 // and bragging.
-import useSolKeeper from '@/use/useSolKeeper'
+import { useI18n } from 'vue-i18n'
+import useSolariancer from '@/use/useSolariancer'
 import SolBadge from '@/components/atoms/SolBadge.vue'
 
 const props = defineProps<{ compact?: boolean }>()
-const sk = useSolKeeper()
+const sk = useSolariancer()
+const { t } = useI18n()
 
 const formatNumber = (n: number): string => {
   if (n < 1000) return Math.floor(n).toString()
@@ -19,11 +21,11 @@ const formatNumber = (n: number): string => {
 
 <template lang="pug">
   SolBadge(
-    label="Session"
+    :label="t('game.hud.session')"
     :value="formatNumber(sk.sessionHeat.value)"
     tone="fuchsia"
     :compact="props.compact"
-    title="Heat earned this session (resets on reload)"
+    :title="t('game.hud.sessionTip')"
   )
     template(#icon)
       //- Hourglass-style accent

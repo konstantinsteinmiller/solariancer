@@ -16,17 +16,20 @@
 // after mount via `initAds()` because the native side needs the Android
 // Activity / iOS ViewController to be alive.
 import { computed } from 'vue'
-import { isCrazyWeb, isNative, showMediatorAds } from '@/use/useUser'
+import { isCrazyWeb, isGameDistribution, isNative, showMediatorAds } from '@/use/useUser'
 import type { AdProvider } from './ads/types'
 import { createCrazyGamesProvider } from './ads/CrazyGamesProvider'
+import { createGameDistributionProvider } from './ads/GameDistributionProvider'
 import { createLevelPlayProvider } from './ads/LevelPlayProvider'
 import { createNoopProvider } from './ads/NoopProvider'
 
 const provider: AdProvider = isCrazyWeb
   ? createCrazyGamesProvider()
-  : (showMediatorAds && isNative)
-    ? createLevelPlayProvider()
-    : createNoopProvider()
+  : isGameDistribution
+    ? createGameDistributionProvider()
+    : (showMediatorAds && isNative)
+      ? createLevelPlayProvider()
+      : createNoopProvider()
 
 export const adProviderName = provider.name
 // `isAdsReady` is the coarse "SDK initialised" gate. Most placements

@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import useSolKeeper from '@/use/useSolKeeper'
+import useSolariancer from '@/use/useSolariancer'
 import useSolEvents from '@/use/useSolEvents'
 import {
   tutorialMode,
@@ -39,20 +39,36 @@ export type PuzzleId =
 
 export interface PuzzleDef {
   id: PuzzleId
-  title: string
-  description: string
 }
 
+// Definitions are pure id list — title + description live in the locale
+// files under `game.puzzle.<id>.{title,description}`. Components look them
+// up via t() so every language renders correctly.
 const PUZZLES: PuzzleDef[] = [
-  { id: 'crowd', title: 'Crowd Master', description: '5s of Crowd ×3 in the zone' },
-  { id: 'comet', title: 'Comet Hunter', description: 'Catch 2 comets' },
-  { id: 'solo', title: 'Solo Survivor', description: 'Survive a Black Hole — no singularity' },
-  { id: 'flare', title: 'Heat Wave', description: 'Earn 800 heat while a Solar Flare is up' },
-  { id: 'chain', title: 'Chain Master', description: 'Reach a ×3 Combo (chain 5 ripe feeds)' },
-  { id: 'ripe3', title: 'Triple Star', description: '3 ripe bodies alive at once' },
-  { id: 'sprint', title: 'Forge Sprint', description: 'Earn 1500 heat in this window' },
-  { id: 'pristine', title: 'Pristine', description: 'No singularity for the full 45s' }
+  { id: 'crowd' },
+  { id: 'comet' },
+  { id: 'solo' },
+  { id: 'flare' },
+  { id: 'chain' },
+  { id: 'ripe3' },
+  { id: 'sprint' },
+  { id: 'pristine' }
 ]
+
+// Looks up the active locale's translation for a puzzle progress phrase.
+// Used by the per-puzzle progress label below — the label itself is built
+// here (it includes counters and units) but the English-only words come
+// from i18n. Falls back to the English string if i18n is unavailable.
+const tx = (key: string, fallback: string): string => {
+  const t = (window as any).__i18n?.global?.t
+  if (typeof t !== 'function') return fallback
+  try {
+    const v = t(key)
+    return typeof v === 'string' && v.length > 0 ? v : fallback
+  } catch {
+    return fallback
+  }
+}
 
 const activePuzzle = ref<PuzzleDef | null>(null)
 const puzzleStartedAtMs = ref(0)
@@ -78,7 +94,7 @@ const puzzleTimeLeft = ref(0)
 
 const startPuzzle = () => {
   if (activePuzzle.value) return
-  const sk = useSolKeeper()
+  const sk = useSolariancer()
   const def = PUZZLES[Math.floor(Math.random() * PUZZLES.length)]!
   activePuzzle.value = def
   puzzleStartedAtMs.value = performance.now()
@@ -98,9 +114,13 @@ const startPuzzle = () => {
 
 const succeed = () => {
   if (!activePuzzle.value) return
-  const sk = useSolKeeper()
+  const sk = useSolariancer()
   sk.addStarMatter(REWARD_STAR_MATTER)
-  spawnPopup(worldCenterX.value, worldCenterY.value - 110, `PUZZLE: ${activePuzzle.value.title}!`, '#a070ff', 26)
+  const titleStr = tx(`game.puzzle.${activePuzzle.value.id}.title`, activePuzzle.value.id)
+  // Localised "PUZZLE: <title>!" — popup template lives in `popup.puzzleSolved`.
+  const headline = tx('game.popup.puzzleSolved', `PUZZLE: ${titleStr}!`)
+    .replace('{title}', titleStr)
+  spawnPopup(worldCenterX.value, worldCenterY.value - 110, headline, '#a070ff', 26)
   spawnPopup(worldCenterX.value, worldCenterY.value - 80, `+${REWARD_STAR_MATTER} ✦`, '#c8a8ff', 22)
   spawnParticles(worldCenterX.value, worldCenterY.value, 22, 280, 220, 4, 0.8)
   activePuzzle.value = null
@@ -118,7 +138,7 @@ let lastHeat = 0
 
 const evaluate = (dt: number) => {
   if (!activePuzzle.value) return
-  const sk = useSolKeeper()
+  const sk = useSolariancer()
   const events = useSolEvents()
   const now = performance.now()
   const elapsed = (now - puzzleStartedAtMs.value) / 1000
@@ -158,8 +178,12 @@ const evaluate = (dt: number) => {
       if (!bh && blackHoleAtStart && !blackHoleCleared) blackHoleCleared = true
       // Display: tells the player what we're waiting for
       puzzleProgressLabel.value = blackHoleCleared
-        ? (singularityUsedDuringPuzzle ? 'survived (touched)' : 'SURVIVED — no touch!')
-        : (blackHoleAtStart ? 'in event…' : 'awaiting BH')
+        ? (singularityUsedDuringPuzzle
+          ? tx('game.puzzle.progress.survivedHit', 'survived (touched)')
+          : tx('game.puzzle.progress.survived', 'SURVIVED — no touch!'))
+        : (blackHoleAtStart
+          ? tx('game.puzzle.progress.inEvent', 'in event…')
+          : tx('game.puzzle.progress.awaitingBH', 'awaiting BH'))
       puzzleProgress.value = blackHoleCleared ? (singularityUsedDuringPuzzle ? 0.5 : 1) : 0
       if (blackHoleCleared) {
         if (singularityUsedDuringPuzzle) fail()
@@ -175,7 +199,9 @@ const evaluate = (dt: number) => {
       const goal = 800
       puzzleProgress.value = Math.min(1, heatDuringFlare / goal)
       puzzleProgressLabel.value = `${Math.round(heatDuringFlare)} / ${goal}`
-        + (events.flareActive.value ? ' 🔥' : ' (waiting)')
+        + (events.flareActive.value
+          ? ` ${tx('game.puzzle.progress.flameOn', '🔥')}`
+          : ` ${tx('game.puzzle.progress.waiting', '(waiting)')}`)
       if (heatDuringFlare >= goal) succeed()
       break
     }
@@ -184,7 +210,7 @@ const evaluate = (dt: number) => {
       const goal = 5
       if (sk.comboCount.value > comboPeak) comboPeak = sk.comboCount.value
       puzzleProgress.value = Math.min(1, comboPeak / goal)
-      puzzleProgressLabel.value = `peak ×${Math.min(comboPeak, goal)} / ×${goal}`
+      puzzleProgressLabel.value = `${tx('game.puzzle.progress.peak', 'peak')} ×${Math.min(comboPeak, goal)} / ×${goal}`
       if (comboPeak >= goal) succeed()
       break
     }
@@ -197,7 +223,7 @@ const evaluate = (dt: number) => {
       }
       const goal = 3
       puzzleProgress.value = Math.min(1, ripeNow / goal)
-      puzzleProgressLabel.value = `${ripeNow} / ${goal} ripe`
+      puzzleProgressLabel.value = `${ripeNow} / ${goal} ${tx('game.puzzle.progress.ripe', 'ripe')}`
       if (ripeNow >= goal) succeed()
       break
     }
@@ -219,8 +245,8 @@ const evaluate = (dt: number) => {
         ? 0
         : Math.min(1, elapsed / PUZZLE_DURATION)
       puzzleProgressLabel.value = singularityUsedDuringPuzzle
-        ? 'broken'
-        : `${Math.round(PUZZLE_DURATION - elapsed)}s left`
+        ? tx('game.puzzle.progress.broken', 'broken')
+        : `${Math.round(PUZZLE_DURATION - elapsed)}s ${tx('game.puzzle.progress.left', 'left')}`
       if (singularityUsedDuringPuzzle) {
         fail()
         return

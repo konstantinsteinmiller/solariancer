@@ -138,8 +138,8 @@ const onStripPointerUp = (e: PointerEvent) => {
       class="hover:scale-[103%] active:scale-95"
       :class="{ 'attention-bounce': hasUnclaimedReward }"
       @click="isModalOpen = true"
-      aria-label="Battle Pass"
-      title="Battle Pass"
+      :aria-label="t('battlePass.battlePass')"
+      :title="t('battlePass.battlePass')"
     )
       div.relative
         div.absolute.inset-0.translate-y-1.rounded-xl.bg-black(class="opacity-40")

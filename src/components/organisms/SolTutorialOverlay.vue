@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import useSolTutorial from '@/use/useSolTutorial'
 
+const { t } = useI18n()
 const { active, stage, progress, canContinue, skip, next, mode, totalStageCount } = useSolTutorial()
 
 // Touch vs desktop — the prompt label changes based on the player's primary input.
@@ -9,72 +11,37 @@ const isTouchDevice = computed(() =>
   typeof window !== 'undefined' &&
   ('ontouchstart' in window || (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0))
 )
-const continueLabel = computed(() => isTouchDevice.value ? 'Tap to continue' : 'Click to continue')
+const continueLabel = computed(() => isTouchDevice.value ? t('tutorial.tap') : t('tutorial.click'))
+const startLabel = computed(() => isTouchDevice.value ? t('tutorial.tapStart') : t('tutorial.clickStart'))
 const isLastStage = computed(() => stage.value >= totalStageCount.value - 1)
 
 interface StageCard {
-  title: string
-  body: string
+  key: string  // i18n key suffix (e.g. 'meet', 'falloff', ...)
   accent: string // tailwind text class for accent words
   tone: 'cool' | 'warm' | 'amber' | 'gold'
 }
 
+// Mirrors INTRO_STAGES in useSolTutorial.ts. Order matters — index = stage.
 const introCards: StageCard[] = [
-  {
-    title: 'PULL INTO THE RING',
-    body: 'Drag bodies into the glowing Heat Zone around the Sun',
-    accent: 'text-sky-300',
-    tone: 'cool'
-  },
-  {
-    title: 'STEER WITH MOVEMENT',
-    body: 'Move your finger AROUND the body to curve its orbit. Stay still and gravity wins.',
-    accent: 'text-amber-300',
-    tone: 'warm'
-  },
-  {
-    title: 'FEED RIPE TO THE SUN!',
-    body: 'Only RIPE bodies pay out — raw drops are WASTED. Time it right!',
-    accent: 'text-orange-300',
-    tone: 'amber'
-  },
-  {
-    title: 'YOU GOT THIS!',
-    body: 'Stack 3+ bodies in the ring for ×3 Heat. Go cook the cosmos!',
-    accent: 'text-yellow-200',
-    tone: 'gold'
-  }
+  { key: 'meet', accent: 'text-orange-300', tone: 'amber' },
+  { key: 'falloff', accent: 'text-violet-300', tone: 'cool' },
+  { key: 'pullIn', accent: 'text-sky-300', tone: 'cool' },
+  { key: 'steer', accent: 'text-amber-300', tone: 'warm' },
+  { key: 'feed', accent: 'text-orange-300', tone: 'amber' },
+  { key: 'finale', accent: 'text-yellow-200', tone: 'gold' }
 ]
 
 const advancedCards: StageCard[] = [
-  {
-    title: 'CROWD ×3',
-    body: 'When 3+ bodies orbit the ring at once, every heat tick is tripled. Stacking pays.',
-    accent: 'text-amber-300',
-    tone: 'warm'
-  },
-  {
-    title: 'CHAIN COMBOS',
-    body: 'Feed ripe bodies within 5s of each other to build the COMBO meter — ×2, then ×3.',
-    accent: 'text-orange-300',
-    tone: 'amber'
-  },
-  {
-    title: 'CLOSE-TO-SUN',
-    body: 'The hot inner band cooks 30% faster and only needs 2s warmup — risky, but fast.',
-    accent: 'text-orange-300',
-    tone: 'amber'
-  },
-  {
-    title: 'EVENTS = REWARDS',
-    body: 'Catch comets, survive black holes, ride flares. Every event is bonus Heat or Star Matter.',
-    accent: 'text-yellow-200',
-    tone: 'gold'
-  }
+  { key: 'crowd', accent: 'text-amber-300', tone: 'warm' },
+  { key: 'combo', accent: 'text-orange-300', tone: 'amber' },
+  { key: 'hotEdge', accent: 'text-orange-300', tone: 'amber' },
+  { key: 'events', accent: 'text-yellow-200', tone: 'gold' }
 ]
 
 const cards = computed(() => mode.value === 'advanced' ? advancedCards : introCards)
 const currentCard = computed<StageCard>(() => cards.value[Math.min(stage.value, cards.value.length - 1)]!)
+const cardTitle = computed(() => t(`tutorial.${mode.value}.${currentCard.value.key}.title`))
+const cardBody = computed(() => t(`tutorial.${mode.value}.${currentCard.value.key}.body`))
 
 const toneGradient = (tone: StageCard['tone']) => {
   switch (tone) {
@@ -141,10 +108,10 @@ const toneBorder = (tone: StageCard['tone']) => {
             div.uppercase.font-black.leading-tight.drop-shadow.tutorial-title(
               class="tracking-[0.2em] game-text text-2xl sm:text-3xl"
               :class="currentCard.accent"
-            ) {{ currentCard.title }}
+            ) {{ cardTitle }}
             div.text-slate-100.font-medium.mt-1.tutorial-body(
               class="leading-snug text-sm sm:text-base max-w-md mx-auto"
-            ) {{ currentCard.body }}
+            ) {{ cardBody }}
             //- Tap/Click to continue prompt — appears only after the
             //- per-stage read threshold (2s) has elapsed.
             Transition(
@@ -154,7 +121,7 @@ const toneBorder = (tone: StageCard['tone']) => {
               leave-to-class="opacity-0"
             )
               div.flex.items-center.justify-center.gap-2.mt-3.tutorial-prompt(v-if="canContinue")
-                span.uppercase.tracking-wider.font-black.text-amber-200(class="game-text text-xs sm:text-sm tutorial-blink") {{ isLastStage ? `${continueLabel} to start` : continueLabel }}
+                span.uppercase.tracking-wider.font-black.text-amber-200(class="game-text text-xs sm:text-sm tutorial-blink") {{ isLastStage ? startLabel : continueLabel }}
                 span.text-amber-300.text-base.font-black.leading-none ›
 
             //- Stage chips
@@ -190,7 +157,7 @@ const toneBorder = (tone: StageCard['tone']) => {
             div.relative.flex.items-center.gap-1.rounded-xl.border-2.px-3(
               class="py-1.5 bg-gradient-to-b from-[#3b2750] to-[#1a0f24] border-violet-500/60 backdrop-blur"
             )
-              span.uppercase.tracking-wider.font-black.text-violet-200(class="game-text text-xs sm:text-sm") Skip
+              span.uppercase.tracking-wider.font-black.text-violet-200(class="game-text text-xs sm:text-sm") {{ t('tutorial.skip') }}
               span.text-violet-300.text-base ›
 </template>
 

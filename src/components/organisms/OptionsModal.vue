@@ -2,7 +2,7 @@
 import { ref, computed, watch } from 'vue' // Added computed
 import { useI18n } from 'vue-i18n'
 import useUser from '@/use/useUser'
-import useSolKeeper from '@/use/useSolKeeper'
+import useSolariancer from '@/use/useSolariancer'
 import { setI18nLocale } from '@/i18n'
 import FModal from '@/components/molecules/FModal.vue'
 import FButton from '@/components/atoms/FButton.vue'
@@ -10,7 +10,7 @@ import FSwitch from '@/components/atoms/FSwitch.vue'
 import FSlider from '@/components/atoms/FSlider.vue'
 import FSelect from '@/components/atoms/FSelect.vue'
 import { DIFFICULTY, LANGUAGES } from '@/utils/enums' // Import LANGUAGES
-import { STAGE_TYPES } from '@/use/useSolKeeper'
+import { STAGE_TYPES, STAGE_TYPE_IDS } from '@/use/useSolariancer'
 import { prependBaseUrl } from '@/utils/function'
 
 defineProps<{
@@ -22,7 +22,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const { locale }: any = useI18n({ useScope: 'global' })
+const { locale, t: tGlobal }: any = useI18n({ useScope: 'global' })
 // main.ts exposes the installed i18n instance on window so runtime
 // locale switches (which need `i18n.global.setLocaleMessage`) can
 // reach it without prop-drilling.
@@ -39,14 +39,17 @@ const {
   resetGameProgress
 } = useUser()
 
-const sk = useSolKeeper()
+const sk = useSolariancer()
 
-// Sun-skin selector — auto + each unlocked palette
+// Sun-skin selector — auto + each unlocked palette. Star-class names come
+// from the active locale's `game.stageType.<id>` translations (global
+// scope) so the dropdown reads in the player's language. The local i18n
+// block keeps the modal's per-component labels.
 const sunSkinOptions = computed(() => {
   const cap = sk.state.value.preferences.unlockedSunSkin
-  const items: Array<{ value: number; label: string }> = [{ value: -1, label: 'Auto (cycle with stage)' }]
+  const items: Array<{ value: number; label: string }> = [{ value: -1, label: t('autoCycleStage') }]
   for (let i = 0; i <= cap && i < STAGE_TYPES.length; i++) {
-    items.push({ value: i, label: `${i + 1}. ${STAGE_TYPES[i]}` })
+    items.push({ value: i, label: `${i + 1}. ${tGlobal(`game.stageType.${STAGE_TYPE_IDS[i]}`)}` })
   }
   return items
 })
@@ -304,6 +307,7 @@ en:
   close: "Save & Close"
   soundEffects: "Sound Effects"
   music: "Music"
+  autoCycleStage: "Auto (cycle with stage)"
   en: "English"
   de: "German"
   fr: "French"
@@ -332,6 +336,7 @@ de:
   close: "Speichern & Schließen"
   soundEffects: "Soundeffekte"
   music: "Musik"
+  autoCycleStage: "Auto (mit Etappe wechseln)"
   en: "Englisch"
   de: "Deutsch"
   fr: "Französisch"
@@ -357,6 +362,7 @@ fr:
   close: "Sauvegarder et Fermer"
   soundEffects: "Effets Sonores"
   music: "Musique"
+  autoCycleStage: "Auto (suit l'étape)"
   en: "Anglais"
   de: "Allemand"
   fr: "Français"
@@ -382,6 +388,7 @@ es:
   close: "Guardar y Cerrar"
   soundEffects: "Efectos de Sonido"
   music: "Música"
+  autoCycleStage: "Auto (sigue la etapa)"
   en: "Inglés"
   de: "Alemán"
   fr: "Francés"
@@ -407,6 +414,7 @@ jp:
   close: "保存して閉じる"
   soundEffects: "効果音"
   music: "音楽"
+  autoCycleStage: "オート（ステージで切替）"
   en: "英語"
   de: "ドイツ語"
   fr: "フランス語"
@@ -432,6 +440,7 @@ kr:
   close: "저장 후 닫기"
   soundEffects: "음향 효과"
   music: "음악"
+  autoCycleStage: "자동 (스테이지에 따라)"
   en: "영어"
   de: "독일어"
   fr: "프랑스어"
@@ -457,6 +466,7 @@ zh:
   close: "保存并关闭"
   soundEffects: "音效"
   music: "音乐"
+  autoCycleStage: "自动（随关卡切换）"
   en: "英语"
   de: "德语"
   fr: "法语"
@@ -482,6 +492,7 @@ ru:
   close: "Сохранить и Закрыть"
   soundEffects: "Звуковые эффекты"
   music: "Музыка"
+  autoCycleStage: "Авто (по этапу)"
   en: "Английский"
   de: "Немецкий"
   fr: "Французский"

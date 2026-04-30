@@ -103,7 +103,7 @@ export interface UpgradeDef {
   baseCost: number
   costGrowth: number
   maxLevel: number
-  /** Linear/multiplicative effect per level — interpreted in useSolKeeper */
+  /** Linear/multiplicative effect per level — interpreted in useSolariancer */
   effectPerLevel: number
   /** Defaults to 'heat'. Cosmic-tier upgrades are paid in star matter. */
   currency?: UpgradeCurrency
@@ -112,7 +112,7 @@ export interface UpgradeDef {
   heatCostGrowth?: number
 }
 
-export interface SolKeeperState {
+export interface SolariancerState {
   heat: number
   starMatter: number
   totalHeatEarned: number
@@ -150,10 +150,10 @@ export interface SolKeeperState {
   /** Heat earned toward the current stage (resets to overflow on stage advance). */
   stageProgress: number
   /** Persisted player preferences for the Solariancer UI. */
-  preferences: SolKeeperPreferences
+  preferences: SolariancerPreferences
 }
 
-export interface SolKeeperPreferences {
+export interface SolariancerPreferences {
   /** Show the per-session heat badge in the HUD. Off by default; opt-in via Settings. */
   showSessionBadge: boolean
   /** Override for the sun palette. -1 means auto (follow current stage). 0..7 picks a specific palette. */

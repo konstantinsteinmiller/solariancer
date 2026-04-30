@@ -4,8 +4,8 @@ import useGravityPhysics, {
   bodies, tutorialMode, worldScale, heatZoneOuter,
   eventFlareMultiplier, eventBlackHoleActive, eventBlackHoleX, eventBlackHoleY
 } from '@/use/useGravityPhysics'
-import useSolKeeper from '@/use/useSolKeeper'
-import { spawnParticles, spawnPopup } from '@/use/useGravityPhysics'
+import useSolariancer from '@/use/useSolariancer'
+import { spawnParticles, spawnPopup, popupT } from '@/use/useGravityPhysics'
 
 // ─── Tuning ────────────────────────────────────────────────────────────────
 //
@@ -58,7 +58,7 @@ const triggerFlare = () => {
   flareWarning.value = false
   flareActive.value = true
   flareTimeLeft.value = FLARE_DURATION
-  spawnPopup(worldCenterX.value, worldCenterY.value - 60, 'SOLAR FLARE!', '#ff6a3d', 32)
+  spawnPopup(worldCenterX.value, worldCenterY.value - 60, popupT('game.popup.solarFlare', 'SOLAR FLARE!'), '#ff6a3d', 32)
   spawnParticles(worldCenterX.value, worldCenterY.value, 30, 18, 320, 5, 1.0)
 }
 
@@ -112,7 +112,7 @@ const spawnComet = () => {
     body.sunFeedBonus = 60    // ripe comet feeds are juicy
     body.bouncesLeft = 0
   }
-  spawnPopup(x, y, 'COMET!', '#9eddff', 22)
+  spawnPopup(x, y, popupT('game.popup.comet', 'COMET!'), '#9eddff', 22)
 }
 
 const spawnBlackHole = () => {
@@ -160,7 +160,7 @@ const spawnBlackHole = () => {
   blackHoleTimeLeft.value = BLACK_HOLE_DURATION
   blackHoleSpawnFlash.value = 1
   bhRipeAtStart = countRipe()
-  spawnPopup(blackHoleX.value, blackHoleY.value, 'BLACK HOLE!', '#a070ff', 28)
+  spawnPopup(blackHoleX.value, blackHoleY.value, popupT('game.popup.blackHole', 'BLACK HOLE!'), '#a070ff', 28)
   spawnParticles(blackHoleX.value, blackHoleY.value, 26, 280, 200, 4, 0.9)
 }
 
@@ -171,7 +171,7 @@ const countRipe = (): number => {
 }
 
 const endBlackHole = () => {
-  const sk = useSolKeeper()
+  const sk = useSolariancer()
   const survivedRipe = countRipe()
   blackHoleActive.value = false
   blackHoleTimeLeft.value = 0
@@ -181,15 +181,17 @@ const endBlackHole = () => {
     sk.addStarMatter(BLACK_HOLE_REWARD_STAR_MATTER)
     sk.lastEarnedSplash.value = { amount: heatAward, at: performance.now() }
     sk.registerBlackHoleSurvived()
-    spawnPopup(blackHoleX.value, blackHoleY.value, `SURVIVED! +${Math.round(heatAward)}`, '#ffd14a', 30)
+    spawnPopup(blackHoleX.value, blackHoleY.value,
+      popupT('game.popup.survived', `SURVIVED! +${Math.round(heatAward)}`, { n: Math.round(heatAward) }),
+      '#ffd14a', 30)
   } else {
-    spawnPopup(blackHoleX.value, blackHoleY.value, 'COLLAPSED', '#888aaa', 22)
+    spawnPopup(blackHoleX.value, blackHoleY.value, popupT('game.popup.collapsed', 'COLLAPSED'), '#888aaa', 22)
   }
 }
 
 const tick = (dt: number) => {
   if (tutorialMode.value) return
-  const sk = useSolKeeper()
+  const sk = useSolariancer()
 
   // ── Flare scheduler ──────────────────────────────────────────────────────
   // Stage 1 is the onboarding sandbox — the red-wash flare effect is
@@ -218,7 +220,7 @@ const tick = (dt: number) => {
     if (flareCooldown.value <= 0) {
       flareWarning.value = true
       flareTimeLeft.value = FLARE_WARNING
-      spawnPopup(worldCenterX.value, worldCenterY.value - 80, 'FLARE INCOMING…', '#ffb04a', 22)
+      spawnPopup(worldCenterX.value, worldCenterY.value - 80, popupT('game.popup.flareIncoming', 'FLARE INCOMING…'), '#ffb04a', 22)
     }
   }
 

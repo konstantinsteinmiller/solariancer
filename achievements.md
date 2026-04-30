@@ -44,7 +44,7 @@ The composable owns one function:
 
 ```ts
 const buildState = (): SolAchievementState => {
-  const sk = useSolKeeper()
+  const sk = useSolariancer()
   const s = sk.state.value
   return { lifetimeHeat: …, totalRipeFeeds: …, /* etc */ }
 }
@@ -103,7 +103,7 @@ const {
 
 ### 6 · Trophy button + modal
 
-The button lives in `SolKeeperGame.vue`:
+The button lives in `SolariancerGame.vue`:
 
 ```vue
 <button @click="openAchievements"
@@ -164,7 +164,7 @@ retention, prestige, and completionist cosmetic / upgrade goals.
 
 ---
 
-## Required state fields in `useSolKeeper`
+## Required state fields in `useSolariancer`
 
 The achievements module reads these fields off the keeper state. If you copy the system to a project that doesn't have
 them, add equivalents and update `buildState()`.
@@ -194,7 +194,7 @@ The "lifetime" counters are **never reset**. Only "in-run" counters (`heat`, `st
 
 1. **Copy `useAchievements.ts` and `AchievementsModal.vue`** into your `src/use/` and `src/components/organisms/` (or
    wherever fits).
-2. **Replace the `useSolKeeper` import** in `useAchievements.ts` with your project's persistent-state composable.
+2. **Replace the `useSolariancer` import** in `useAchievements.ts` with your project's persistent-state composable.
 3. **Rewrite `buildState()`** so it returns a `SolAchievementState` mapped from your project's fields. Rename the
    interface if you want — nothing else depends on the name.
 4. **Rewrite `ACHIEVEMENTS`** with your project's goals. Keep ids stable forever — they're storage keys.

@@ -1,9 +1,18 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import useSolKeeper from '@/use/useSolKeeper'
+import { useI18n } from 'vue-i18n'
+import useSolariancer from '@/use/useSolariancer'
 import useSolEvents from '@/use/useSolEvents'
 import { ripeCount } from '@/use/useGravityPhysics'
-import { isMobileLandscape, isCompactViewport, isTabletViewport } from '@/use/useUser'
+import { isMobileLandscape, isCompactViewport, isTabletViewport, isGlitch } from '@/use/useUser'
+
+const { t } = useI18n()
+
+// Glitch.fun's iframe chrome includes a top "trial / access" badge that
+// covers the upper ~50-60 px of the game canvas. Pad the top-right HUD
+// column down on Glitch builds only — other platforms serve us a clean
+// viewport.
+const GLITCH_TOP_OFFSET_PX = 65
 import SolStageBadge from '@/components/organisms/SolStageBadge.vue'
 import HeatBadge from '@/components/organisms/HeatBadge.vue'
 import StarMatterBadge from '@/components/organisms/StarMatterBadge.vue'
@@ -13,7 +22,7 @@ import StreakBadge from '@/components/organisms/StreakBadge.vue'
 import MissionBadge from '@/components/organisms/MissionBadge.vue'
 import PuzzleBadge from '@/components/organisms/PuzzleBadge.vue'
 
-const sk = useSolKeeper()
+const sk = useSolariancer()
 const events = useSolEvents()
 const { state } = sk
 const { comboCount, comboMultiplier, comboActive, comboTimeLeft } = sk
@@ -49,7 +58,7 @@ const tablet = computed(() => isTabletViewport.value)
     //- Row 3: (empty)     | StreakBadge      ← bottom-most
     div.absolute.top-0.right-0.pointer-events-auto(
       :style="{\
-        paddingTop: 'calc(0.4rem + env(safe-area-inset-top, 0px))',\
+        paddingTop: `calc(0.4rem + env(safe-area-inset-top, 0px)${isGlitch ? ` + ${GLITCH_TOP_OFFSET_PX}px` : ''})`,\
         paddingRight: 'calc(0.4rem + env(safe-area-inset-right, 0px))'\
       }"
       :class="[\
@@ -72,7 +81,7 @@ const tablet = computed(() => isTabletViewport.value)
           v-if="ripeCount > 0"
           class="px-3 py-1 bg-gradient-to-b from-[#3a2415] to-[#1c0f06] border-[#0f1a30]"
         )
-          span.uppercase.tracking-wider.text-amber-200.font-black(class="game-text text-[10px]") Ripe
+          span.uppercase.tracking-wider.text-amber-200.font-black(class="game-text text-[10px]") {{ t('game.hud.ripe') }}
           span.font-black.text-amber-100.tabular-nums(class="game-text text-base") {{ ripeCount }}
 
     //- ─── Top-center: combo + flare cluster (unchanged) ──────────────────
@@ -97,7 +106,7 @@ const tablet = computed(() => isTabletViewport.value)
           span.text-xl.font-black(
             class="game-text"
             :class="flareActive ? 'text-orange-200' : 'text-amber-200'"
-          ) {{ flareActive ? `☼ SOLAR FLARE ×${flareMultiplier}` : '⚠ FLARE INCOMING' }}
+          ) {{ flareActive ? `☼ ${t('game.hud.solarFlare')} ×${flareMultiplier}` : `⚠ ${t('game.hud.flareIncoming')}` }}
           span.text-orange-100.font-black.tabular-nums(class="game-text text-base") {{ flareTimeLeft.toFixed(1) }}s
 
       Transition(
@@ -117,7 +126,7 @@ const tablet = computed(() => isTabletViewport.value)
           span.text-amber-200.font-black.uppercase.tracking-wider(
             class="game-text"
             :class="compact ? 'text-[10px]' : 'text-xs'"
-          ) Combo
+          ) {{ t('game.hud.combo') }}
           span.text-amber-100.font-black(
             class="game-text"
             :class="compact ? 'text-base' : 'text-xl'"
@@ -130,7 +139,7 @@ const tablet = computed(() => isTabletViewport.value)
           span.text-amber-200.uppercase.font-bold(
             v-if="!compact"
             class="game-text text-[10px]"
-          ) {{ comboCount }} chain
+          ) {{ comboCount }} {{ t('game.hud.chain') }}
 </template>
 
 <style scoped lang="sass">

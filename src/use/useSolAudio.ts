@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { getAudioContext } from '@/use/useAssets'
-import useSolKeeper from '@/use/useSolKeeper'
+import useSolariancer from '@/use/useSolariancer'
 import useSolEvents from '@/use/useSolEvents'
 import useSolTutorial from '@/use/useSolTutorial'
 import useUser from '@/use/useUser'
@@ -110,7 +110,7 @@ const tick = (_dt: number) => {
   if (!ensureStarted() || !state) return
   const { ctx, humGain, humOsc, rumbleGain } = state
 
-  const sk = useSolKeeper()
+  const sk = useSolariancer()
   const events = useSolEvents()
   const tutorial = useSolTutorial()
   const { userSoundVolume } = useUser()

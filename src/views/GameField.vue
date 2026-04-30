@@ -137,11 +137,11 @@ const { setSettingValue } = useUser()
 // Battle Pass — xp awards are fired from the game-over watcher below.
 // Battle Pass + PvP stats stubs — the chaos-arena BP API
 // (awardCampaignWin / awardLeaderboardWin / awardLoss) and `usePvpStats`
-// were removed during the Sol Keeper cleanup. This view (GameField, the
+// were removed during the Solariancer cleanup. This view (GameField, the
 // spinner game) is no longer routed; these no-ops keep the leftover
 // reward-flow code below compiling without re-introducing the deleted
 // modules.
-const bpAwardCampaignWin = () => {/* no-op — BP rewired for Sol Keeper */
+const bpAwardCampaignWin = () => {/* no-op — BP rewired for Solariancer */
 }
 const bpAwardLeaderboardWin = () => {/* no-op */
 }

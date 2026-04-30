@@ -3,12 +3,20 @@
 // Visual riff on the Chaos Arena stage badge — a 3D drop-shadow base, a
 // tinted gradient body, and a chunky number chip on the left.
 import { computed } from 'vue'
-import useSolKeeper from '@/use/useSolKeeper'
+import { useI18n } from 'vue-i18n'
+import useSolariancer, { STAGE_TYPE_IDS } from '@/use/useSolariancer'
 
-const sk = useSolKeeper()
+const sk = useSolariancer()
+const { t } = useI18n()
 
 const stageId = computed(() => sk.state.value.stage)
-const stageName = computed(() => sk.stageTypeName.value)
+// Stage name comes from the active locale's `game.stageType.<id>` entry —
+// composables can't useI18n at module init, so the badge resolves the tier
+// to its id here and runs t() reactively (locale switch updates live).
+const stageName = computed(() => {
+  const tier = Math.max(0, Math.min(STAGE_TYPE_IDS.length - 1, sk.sunSkinTier.value))
+  return t(`game.stageType.${STAGE_TYPE_IDS[tier]}`)
+})
 const progress = computed(() => sk.stageProgressFraction.value)
 const progressLabel = computed(() => `${Math.floor(sk.state.value.stageProgress)} / ${sk.currentStageGoal.value}`)
 const solarClass = computed(() => sk.state.value.solarClass)
@@ -142,7 +150,7 @@ const theme = computed<StageTheme>(() => themes[sk.sunSkinTier.value] ?? themes[
         div.flex.items-baseline.gap-1
           span.font-black.uppercase.tracking-wider.game-text.text-white(
             class="text-[9px] sm:text-[11px] opacity-90"
-          ) Stage {{ stageId }}
+          ) {{ t('game.hud.stage') }} {{ stageId }}
           span.font-bold.italic.game-text(
             :class="theme.accent"
             class="text-[10px] sm:text-xs"

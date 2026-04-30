@@ -232,14 +232,14 @@ Every gameplay event has a visual:
 | Concern                                            | File                                              |
 |----------------------------------------------------|---------------------------------------------------|
 | Physics, heat zone, cooking, sun feed, mass magnet | `src/use/useGravityPhysics.ts`                    |
-| Player state, upgrades, persistence                | `src/use/useSolKeeper.ts`                         |
-| Renderer (canvas 2D)                               | `src/use/useSolKeeperRenderer.ts`                 |
+| Player state, upgrades, persistence                | `src/use/useSolariancer.ts`                       |
+| Renderer (canvas 2D)                               | `src/use/useSolariancerRenderer.ts`               |
 | Tutorial driver                                    | `src/use/useSolTutorial.ts`                       |
-| Game view + input                                  | `src/views/SolKeeperGame.vue`                     |
+| Game view + input                                  | `src/views/SolariancerGame.vue`                   |
 | HUD                                                | `src/components/organisms/SolHud.vue`             |
 | Upgrade modal                                      | `src/components/organisms/SolUpgradeModal.vue`    |
 | Tutorial overlay                                   | `src/components/organisms/SolTutorialOverlay.vue` |
-| Types                                              | `src/types/solkeeper.ts`                          |
+| Types                                              | `src/types/Solariancer.ts`                        |
 
 ## 10. Tunable constants
 

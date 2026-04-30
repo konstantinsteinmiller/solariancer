@@ -120,7 +120,7 @@ export const loadAudioBuffer = async (src: string): Promise<AudioBuffer | null> 
   return promise
 }
 
-// ─── Preload tiers (Sol Keeper) ────────────────────────────────────────────
+// ─── Preload tiers (Solariancer) ────────────────────────────────────────────
 //
 // Two layers, chosen to minimise the time to first interactive frame and
 // then eliminate every visible / audible pop-in before the player can
@@ -128,7 +128,7 @@ export const loadAudioBuffer = async (src: string): Promise<AudioBuffer | null> 
 //
 //   1. CRITICAL — splash-blocking. Drives the FLogoProgress %, gates the
 //      RouterView mount. Strictly limited to assets that paint the very
-//      first frame of SolKeeperGame:
+//      first frame of SolariancerGame:
 //         • the splash logo
 //         • the low-res space backdrop (used as splash CSS background AND
 //           as the canvas backdrop until the hi-res version lands)
@@ -164,7 +164,7 @@ const DEFERRED_IMAGES = [
 // is in `resourceCache.images` and then picks it up on its next frame.
 const HIGH_RES_BG = 'images/bg/bg_1280x720.webp'
 
-// Gameplay SFX actually triggered by Sol Keeper. Sourced from
+// Gameplay SFX actually triggered by Solariancer. Sourced from
 // `useGravityPhysics.ts` (clash-* on body collisions / sun feeds,
 // explosion-1 on comet/black-hole detonations, level-up on stage advance).
 // The synthesised audio in `useSolAudio.ts` (heat hum, black-hole rumble)

@@ -1,17 +1,19 @@
 <script setup lang="ts">
 // Bodies currently in the Heat Zone. Highlights amber + shows ×3 chip when
 // the crowd bonus is active (3+ bodies orbiting at once).
-import useSolKeeper from '@/use/useSolKeeper'
+import { useI18n } from 'vue-i18n'
+import useSolariancer from '@/use/useSolariancer'
 import { orbitingCount, crowdBonusActive } from '@/use/useGravityPhysics'
 import SolBadge from '@/components/atoms/SolBadge.vue'
 
 const props = defineProps<{ compact?: boolean }>()
-const _sk = useSolKeeper()
+const _sk = useSolariancer()
+const { t } = useI18n()
 </script>
 
 <template lang="pug">
   SolBadge(
-    label="In Zone"
+    :label="t('game.hud.inZone')"
     :value="orbitingCount"
     :tone="crowdBonusActive ? 'amber' : 'sky'"
     :highlight="crowdBonusActive"

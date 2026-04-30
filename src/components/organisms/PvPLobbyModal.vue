@@ -45,7 +45,7 @@ const {
   leavePvP
 } = usePVP()
 
-// PvP stats removed with the chaos-arena cleanup — Sol Keeper has no
+// PvP stats removed with the chaos-arena cleanup — Solariancer has no
 // honor / wins / losses tracker. This dead view (not routed) keeps
 // placeholder zeros so the template still binds without errors.
 const wins = computed(() => 0)

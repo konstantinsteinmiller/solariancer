@@ -2,11 +2,14 @@
 // Top-line resource badge: current heat balance with the splash gainer
 // animation that pops out the right side on every payout.
 import { ref, watch } from 'vue'
-import useSolKeeper from '@/use/useSolKeeper'
+import { useI18n } from 'vue-i18n'
+import useSolariancer from '@/use/useSolariancer'
 import SolBadge from '@/components/atoms/SolBadge.vue'
 
+const { t } = useI18n()
+
 const props = defineProps<{ compact?: boolean }>()
-const sk = useSolKeeper()
+const sk = useSolariancer()
 
 const splash = ref<{ amount: number; key: number } | null>(null)
 let splashKey = 0
@@ -30,7 +33,7 @@ const formatNumber = (n: number): string => {
 </script>
 
 <template lang="pug">
-  SolBadge(label="Heat" :value="formatNumber(sk.state.value.heat)" tone="amber" :compact="props.compact")
+  SolBadge(:label="t('game.hud.heat')" :value="formatNumber(sk.state.value.heat)" tone="amber" :compact="props.compact")
     template(#icon)
       div.relative.h-6.w-6.rounded-full(
         class="bg-gradient-to-br from-[#ffe79e] via-[#ff8c2a] to-[#c5320e]"

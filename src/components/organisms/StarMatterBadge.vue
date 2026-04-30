@@ -1,16 +1,18 @@
 <script setup lang="ts">
 // Star Matter — meta currency. Only shown when > 0 to avoid HUD clutter.
-import useSolKeeper from '@/use/useSolKeeper'
+import { useI18n } from 'vue-i18n'
+import useSolariancer from '@/use/useSolariancer'
 import SolBadge from '@/components/atoms/SolBadge.vue'
 
 const props = defineProps<{ compact?: boolean }>()
-const sk = useSolKeeper()
+const sk = useSolariancer()
+const { t } = useI18n()
 </script>
 
 <template lang="pug">
   SolBadge(
     v-if="sk.state.value.starMatter > 0"
-    label="Star Matter"
+    :label="t('game.hud.starMatter')"
     :value="sk.state.value.starMatter.toLocaleString()"
     tone="violet"
     :compact="props.compact"

@@ -1,10 +1,13 @@
 <script setup lang="ts">
 
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import FModal from '@/components/molecules/FModal.vue'
 import FButton from '@/components/atoms/FButton.vue'
-import useSolKeeper, { fusionCumulativeBonus, fusionEffectAtLevel } from '@/use/useSolKeeper'
-import type { UpgradeId } from '@/types/solkeeper'
+import useSolariancer, { fusionCumulativeBonus, fusionEffectAtLevel } from '@/use/useSolariancer'
+import type { UpgradeId } from '@/types/Solariancer'
+
+const { t } = useI18n()
 
 interface Props {
   modelValue: boolean
@@ -13,7 +16,7 @@ interface Props {
 defineProps<Props>()
 const emit = defineEmits(['update:modelValue'])
 
-const sk = useSolKeeper()
+const sk = useSolariancer()
 const { state, UPGRADES, upgradeCost, isUpgradeMaxed, canAffordUpgrade, buyUpgrade, upgradeCurrency } = sk
 const supernovaConfirmOpen = ref(false)
 const formatHeat = (n: number): string => {
@@ -45,6 +48,10 @@ interface UpgradeView {
   currency: 'heat' | 'starMatter'
 }
 
+// Upgrade titles + descriptions are pulled from i18n by id. The numeric
+// effect strings (`+20% pull / lvl`) stay generated here because they
+// embed live multiplier values — translating templated numbers each tick
+// is more friction than benefit; the surrounding labels carry the locale.
 const view = computed<UpgradeView[]>(() => UPGRADES.map(u => {
   const lvl = state.value.upgrades[u.id]
   const base = {
@@ -52,26 +59,22 @@ const view = computed<UpgradeView[]>(() => UPGRADES.map(u => {
     level: lvl,
     maxLevel: u.maxLevel,
     maxLabel: isFinite(u.maxLevel) ? String(u.maxLevel) : '∞',
-    currency: upgradeCurrency(u.id)
+    currency: upgradeCurrency(u.id),
+    title: t(`game.upgrade.${u.id}.title`),
+    description: t(`game.upgrade.${u.id}.description`)
   }
   switch (u.id) {
     case 'singularityCore':
       return {
         ...base,
-        title: 'Singularity Core',
-        description: 'Boost the strength of your touch gravity.',
         effect: `+${(u.effectPerLevel * 100) | 0}% pull / lvl  ·  current ×${(1 + lvl * u.effectPerLevel).toFixed(2)}`,
         iconColors: ['#a070ff', '#3a1a7a']
       }
     case 'fusionStabilizer': {
-      // Open-ended staircase — show what THIS purchase will add and where the
-      // staircase steps down so the player can plan around the bracket break.
       const current = 1 + fusionCumulativeBonus(lvl)
-      const nextDelta = fusionEffectAtLevel(lvl) * 100  // % the next level will add
+      const nextDelta = fusionEffectAtLevel(lvl) * 100
       return {
         ...base,
-        title: 'Fusion Stabilizer',
-        description: 'Heat Zone tick + sun-feed yield. ∞ levels — but slows every 15 (1× → ¼× → ⅛×).',
         effect: `+${nextDelta.toFixed(2)}% next  ·  current ×${current.toFixed(2)}`,
         iconColors: ['#ff9444', '#7a1f0c']
       }
@@ -79,65 +82,47 @@ const view = computed<UpgradeView[]>(() => UPGRADES.map(u => {
     case 'attractionRadius':
       return {
         ...base,
-        title: 'Resonance Field',
-        description: 'Wider gravitational reach for your singularity.',
         effect: `+${(u.effectPerLevel * 100) | 0}% range / lvl`,
         iconColors: ['#5fd2ff', '#0f3e6c']
       }
     case 'automationProbe':
       return {
         ...base,
-        title: 'Tether Station',
-        description: 'Slow orbiting station — ropes a passing asteroid, drags it through orbit until ripe, then launches it at the Sun (chains combos).',
-        effect: lvl > 0 ? `${lvl} active station${lvl > 1 ? 's' : ''}` : 'No stations — buy to enable',
-        iconColors: ['#dffafd', '#2b6fa3']
-      }
-    case 'automationProbe':
-      return {
-        ...base,
-        title: 'Stabilizer Probe',
-        description: 'Drones lock onto a body and circularize its orbit — damps drift, matches orbital speed.',
-        effect: lvl > 0 ? `${lvl} active drone${lvl > 1 ? 's' : ''}` : 'No drones — buy to enable',
+        effect: lvl > 0
+          ? `${lvl} active station${lvl > 1 ? 's' : ''}`
+          : t('game.upgrade.noLevels'),
         iconColors: ['#dffafd', '#2b6fa3']
       }
     case 'heatShield':
       return {
         ...base,
-        title: 'Zone Expansion',
-        description: 'Widen the Heat Zone ring around the Sun — more room to herd.',
         effect: `+${(u.effectPerLevel * 100) | 0}% zone width / lvl  ·  current ×${(1 + lvl * u.effectPerLevel).toFixed(2)}`,
         iconColors: ['#ffd14a', '#7a3a0e']
       }
     case 'orbitalCapacity':
       return {
         ...base,
-        title: 'Mass Magnet',
-        description: 'Asteroids snap into the nearest planet, adding to its mass instead of cluttering.',
-        effect: lvl > 0 ? `Range +${lvl * 25}px  ·  pull ×${lvl}` : 'Off — buy to enable',
+        effect: lvl > 0 ? `Range +${lvl * 25}px  ·  pull ×${lvl}` : t('game.upgrade.noLevels'),
         iconColors: ['#9eddff', '#1a3470']
       }
     case 'surfaceTension':
       return {
         ...base,
-        title: 'Surface Tension',
-        description: 'Bodies bounce off the Sun before being consumed — saves cooked planets from accidents.',
-        effect: lvl > 0 ? `${lvl} bounce${lvl > 1 ? 'es' : ''} per body` : 'No bounces — buy to enable',
+        effect: lvl > 0 ? `${lvl} bounce${lvl > 1 ? 'es' : ''} per body` : t('game.upgrade.noLevels'),
         iconColors: ['#9ee6ff', '#1d4f78']
       }
     case 'cosmicForge':
       return {
         ...base,
-        title: 'Cosmic Forge ✦',
-        description: 'Cosmic-tier. Paid in Star Matter. Multiplies ALL heat earnings — stacks with Fusion Stabilizer.',
         effect: `+${(u.effectPerLevel * 100) | 0}% Heat / lvl  ·  current ×${(1 + lvl * u.effectPerLevel).toFixed(2)}`,
         iconColors: ['#c8a8ff', '#3a1a7a']
       }
     case 'bigProbeStation':
       return {
         ...base,
-        title: 'Big Probe Station ✦',
-        description: 'High-tier rope drone. Catches asteroids AND mid-size planets (rocky / ice / jewel) and launches them ripe. Max 2.',
-        effect: lvl > 0 ? `${lvl} active big station${lvl > 1 ? 's' : ''}` : 'No big stations — buy to enable',
+        effect: lvl > 0
+          ? `${lvl} active big station${lvl > 1 ? 's' : ''}`
+          : t('game.upgrade.noLevels'),
         iconColors: ['#ffd14a', '#7a3a0e']
       }
   }
@@ -150,7 +135,7 @@ const close = () => emit('update:modelValue', false)
   FModal(
     :model-value="modelValue"
     @update:model-value="emit('update:modelValue', $event)"
-    title="Upgrades"
+    :title="t('game.modal.upgradesTitle')"
   )
     div.text-left.overflow-y-auto.pr-1.upgrade-scroll(class="max-h-[60vh]")
 
@@ -168,11 +153,11 @@ const close = () => emit('update:modelValue', false)
           span.relative.text-lg.font-black.text-white(class="game-text") ★{{ state.solarClass }}
         div.flex-1.text-left.text-white(class="leading-tight")
           div.flex.items-baseline.gap-2.flex-wrap
-            span.font-black.uppercase.tracking-wide(class="game-text text-sm sm:text-base") Solar Class
-            span.text-fuchsia-200(class="text-[10px] sm:text-xs") rank {{ state.solarClass }}  ·  +{{ state.solarClass * 5 }}% all heat
+            span.font-black.uppercase.tracking-wide(class="game-text text-sm sm:text-base") {{ t('game.solar.class') }}
+            span.text-fuchsia-200(class="text-[10px] sm:text-xs") {{ t('game.hud.rank') }} {{ state.solarClass }}  ·  {{ t('game.solar.allHeatBonus', { pct: state.solarClass * 5 }) }}
           div.text-slate-300(class="leading-snug text-[11px] sm:text-xs")
-            template(v-if="sk.canSupernova.value") Ready to go Supernova — prestige resets your run for a permanent multiplier.
-            template(v-else) Reach {{ formatHeat(sk.supernovaThreshold.value) }} lifetime heat to prestige.
+            template(v-if="sk.canSupernova.value") {{ t('game.solar.rankReady') }}
+            template(v-else) {{ t('game.solar.rankNotReady', { n: formatHeat(sk.supernovaThreshold.value) }) }}
           //- Threshold progress bar
           div.relative.rounded-full.overflow-hidden(
             v-if="!sk.canSupernova.value"
@@ -187,10 +172,10 @@ const close = () => emit('update:modelValue', false)
         div.shrink-0
           template(v-if="sk.canSupernova.value")
             FButton(size="sm" type="primary" @click="supernovaConfirmOpen = true")
-              span(class="uppercase font-black tracking-wider text-xs") Supernova
+              span(class="uppercase font-black tracking-wider text-xs") {{ t('game.solar.supernova') }}
           template(v-else)
             div.rounded-lg.border.border-slate-700.bg-slate-900.px-3.py-2.text-slate-400.text-xs.font-black.uppercase
-              | LOCKED
+              | {{ t('game.solar.locked') }}
 
       //- Upgrade items — 2-col grid on sm+ (and on landscape phones, since
       //- they're sm: by width too). Rows stay full-width on portrait phones.
@@ -213,13 +198,13 @@ const close = () => emit('update:modelValue', false)
           div.flex-1.text-left.text-white(class="leading-tight min-w-0")
             div.flex.items-baseline.gap-2.flex-wrap
               span.font-black.uppercase.tracking-wide(class="game-text text-xs sm:text-sm") {{ u.title }}
-              span.text-slate-300(class="text-[10px]") lvl {{ u.level }}/{{ u.maxLabel }}
+              span.text-slate-300(class="text-[10px]") {{ t('game.modal.levelShort') }} {{ u.level }}/{{ u.maxLabel }}
             div.text-slate-300(class="leading-snug text-[10px] sm:text-[11px]") {{ u.description }}
             div.font-bold.text-amber-300(class="text-[10px] sm:text-[11px] mt-0.5") {{ u.effect }}
           //- Buy / Maxed
           div.shrink-0
             template(v-if="isUpgradeMaxed(u.id)")
-              div.rounded-lg.border.border-emerald-700.bg-emerald-900.px-3.py-2.text-emerald-200.text-xs.font-black.uppercase MAX
+              div.rounded-lg.border.border-emerald-700.bg-emerald-900.px-3.py-2.text-emerald-200.text-xs.font-black.uppercase {{ t('game.modal.max') }}
             template(v-else)
               FButton(
                 :is-disabled="!canAffordUpgrade(u.id)"
@@ -257,27 +242,26 @@ const close = () => emit('update:modelValue', false)
                   span.tabular-nums {{ upgradeCost(u.id) }}
 
     template(#footer)
-      FButton(size="md" @click="close") Close
+      FButton(size="md" @click="close") {{ t('game.modal.close') }}
 
   //- Supernova confirmation modal
   FModal(
     v-model:model-value="supernovaConfirmOpen"
     :is-closable="true"
-    title="Go Supernova?"
+    :title="t('game.solar.supernovaConfirm')"
     @update:model-value="supernovaConfirmOpen = $event"
   )
     div.flex.flex-col.gap-2.p-2.text-white
       div.text-center.font-black.uppercase.tracking-wider.text-fuchsia-200(class="game-text text-base")
-        | ★ Solar Class {{ state.solarClass + 1 }}
+        | {{ t('game.supernovaModal.newClass', { n: state.solarClass + 1 }) }}
       div.text-slate-200(class="leading-snug text-sm text-center")
-        | Reset Heat, Stage and all Upgrades. Keep Star Matter, Streak and all unlocks.
+        | {{ t('game.supernovaModal.reset') }}
       div.text-slate-200(class="leading-snug text-sm text-center mt-1")
-        | New permanent bonus:
-        span.font-black.text-fuchsia-300  +{{ (state.solarClass + 1) * 5 }}% all Heat
-        | .
+        | {{ t('game.supernovaModal.newBonusPrefix') }}
+        span.font-black.text-fuchsia-300  {{ ' ' + t('game.supernovaModal.newBonusValue', { pct: (state.solarClass + 1) * 5 }) }}
     template(#footer)
-      FButton(type="secondary" @click="supernovaConfirmOpen = false") Cancel
-      FButton(type="primary" @click="onSupernovaConfirm") Confirm
+      FButton(type="secondary" @click="supernovaConfirmOpen = false") {{ t('game.modal.cancel') }}
+      FButton(type="primary" @click="onSupernovaConfirm") {{ t('game.modal.confirm') }}
 
 
 </template>

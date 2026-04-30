@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import FIconButton from '@/components/atoms/FIconButton.vue'
 import FButton from '@/components/atoms/FButton.vue'
 import FMuteButton from '@/components/atoms/FMuteButton.vue'
@@ -12,26 +13,52 @@ import MissionRewardModal from '@/components/organisms/MissionRewardModal.vue'
 import AchievementsModal from '@/components/organisms/AchievementsModal.vue'
 import OptionsModal from '@/components/organisms/OptionsModal.vue'
 import useGravityPhysics from '@/use/useGravityPhysics'
-import useSolKeeper from '@/use/useSolKeeper'
+import useSolariancer from '@/use/useSolariancer'
 import useSolTutorial from '@/use/useSolTutorial'
 import useSolAudio from '@/use/useSolAudio'
 import useAchievements from '@/use/useAchievements'
-import { startRenderLoop } from '@/use/useSolKeeperRenderer'
-import { isMobileLandscape, isMobilePortrait, isCompactViewport } from '@/use/useUser'
+import { startRenderLoop } from '@/use/useSolariancerRenderer'
+import { isMobileLandscape, isMobilePortrait, isCompactViewport, isGlitch, isY8 } from '@/use/useUser'
 import useBottomSafe from '@/use/useBottomSafe'
 import { useMusic } from '@/use/useSound'
+
+// Glitch.fun wraps the iframe in a chrome that includes a top "trial /
+// access" badge and a bottom toolbar. Both intrude ~50–60 px into the
+// game viewport and cover our HUD. Pad the affected sides on Glitch
+// builds only — every other platform serves the iframe unobstructed.
+const GLITCH_CHROME_PX = 65
+
+// Static asset URL helper. Vite's `--base=./` (used by every portal
+// build) makes index.html paths relative, but `<img src="/...">` stays
+// document-absolute and breaks when the host serves us under a sub-path
+// (Glitch). `import.meta.env.BASE_URL` is the build-time-resolved base
+// (typically './' for portals, '/' for surge/dev), so prefixing every
+// public-asset reference with it works on every platform.
+const assetUrl = (p: string): string =>
+  `${import.meta.env.BASE_URL}${p.replace(/^\//, '')}`
+const settingsIconUrl = assetUrl('/images/icons/settings-icon_128x128.webp')
+const gearsIconUrl = assetUrl('/images/icons/gears_128x128.webp')
+
+// Y8 portal branding — the rectangle wordmark sits above the FMuteButton in
+// the bottom-left HUD column on Y8 builds only. Loaded lazily via a v-if on
+// `isY8` (other builds never request the file). Source asset lives under
+// `public/images/logo/y8-logo-with-border*.png`; we serve the @2x version on
+// retina via the standard srcset hint.
+const y8LogoUrl = assetUrl('/images/logo/y8-with-border.png')
+const y8LogoUrl2x = assetUrl('/images/logo/y8-with-border@2x.png')
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 let stopRender: (() => void) | null = null
 
 const physics = useGravityPhysics()
-const sk = useSolKeeper()
+const sk = useSolariancer()
 const tutorial = useSolTutorial()
 const audio = useSolAudio()
 const achievements = useAchievements()
 const isAchievementsOpen = ref(false)
 const { bottomGapPx, scheduleBottomMeasure } = useBottomSafe()
 const { startBattleMusic, stopBattleMusic } = useMusic()
+const { t } = useI18n()
 
 scheduleBottomMeasure()
 
@@ -233,7 +260,7 @@ const stage1IdleHintActive = computed(() => {
     //- Right column has the replay-tutorial helper and the Upgrades button.
     div.absolute.left-0.right-0.pointer-events-none.flex.justify-between(
       :style="{\
-        bottom: `calc(0.5rem + env(safe-area-inset-bottom, 0px) + ${bottomGapPx}px)`,\
+        bottom: `calc(0.5rem + env(safe-area-inset-bottom, 0px) + ${bottomGapPx}px${isGlitch ? ` + ${GLITCH_CHROME_PX}px` : ''})`,\
         paddingLeft: 'calc(0.5rem + env(safe-area-inset-left, 0px))',\
         paddingRight: 'calc(0.5rem + env(safe-area-inset-right, 0px))'\
       }"
@@ -242,13 +269,24 @@ const stage1IdleHintActive = computed(() => {
       div.pointer-events-auto.flex.flex-col.items-start.gap-2(
         :class="[isCompactViewport ? 'scale-80 origin-bottom-left' : '']"
       )
+        //- Y8 portal branding — only rendered on Y8 builds. The v-if
+        //- prevents the request entirely on other platforms; isY8 is a
+        //- static `import.meta.env` boolean so Vite tree-shakes the
+        //- whole branch out of non-Y8 bundles.
+        img.h-8.w-auto(
+          v-if="isY8"
+          :src="y8LogoUrl"
+          :srcset="`${y8LogoUrl} 1x, ${y8LogoUrl2x} 2x`"
+          alt="Y8"
+          class="opacity-95 drop-shadow-[0_2px_2px_rgba(0,0,0,0.6)]"
+        )
         FMuteButton
         //- Bottom row: Settings + Battle Pass side-by-side. The BP button
         //- carries its own pending-claim chip and bounce hint, so giving
         //- it a dedicated slot next to Settings keeps both reachable at
         //- thumb height on portrait phones.
         div.flex.items-end.gap-2
-          FIconButton(type="secondary" size="md" img-src="/images/icons/settings-icon_128x128.webp" @click="openOptions")
+          FIconButton(type="secondary" size="md" :img-src="settingsIconUrl" @click="openOptions")
           BattlePass
 
       div.pointer-events-auto.flex.items-end.gap-2(
@@ -259,8 +297,8 @@ const stage1IdleHintActive = computed(() => {
           @click="openAchievements"
           class="hover:scale-105 active:scale-95 transition-transform"
           :class="{ 'attention-bounce': achievements.unseenCount.value > 0 }"
-          aria-label="Achievements"
-          title="Achievements"
+          :aria-label="t('game.modal.achievements')"
+          :title="t('game.modal.achievements')"
         )
           div.relative
             div.absolute.inset-0.translate-y-1.rounded-xl.bg-black(class="opacity-40")
@@ -277,8 +315,8 @@ const stage1IdleHintActive = computed(() => {
           @click="replayTutorial"
           class="hover:scale-105 active:scale-95 transition-transform"
           :class="{ 'attention-bounce': stage1IdleHintActive }"
-          aria-label="Replay tutorial"
-          title="Replay tutorial"
+          :aria-label="t('game.modal.replayTutorial')"
+          :title="t('game.modal.replayTutorial')"
         )
           div.relative
             div.absolute.inset-0.translate-y-1.rounded-xl.bg-black.opacity-40
@@ -294,8 +332,8 @@ const stage1IdleHintActive = computed(() => {
           @click="openUpgrades"
           class="hover:scale-105 active:scale-95 transition-transform"
           :class="{ 'attention-bounce': sk.upgradeHintAllowed.value && (showStarterHint || sk.state.value.heat >= 60) }"
-          aria-label="Upgrades"
-          title="Upgrades"
+          :aria-label="t('game.modal.upgradesTitle')"
+          :title="t('game.modal.upgradesTitle')"
         )
           div.relative
             div.absolute.inset-0.translate-y-1.rounded-xl.bg-black(class="opacity-40")
@@ -303,7 +341,7 @@ const stage1IdleHintActive = computed(() => {
               class="bg-gradient-to-b from-[#a070ff] to-[#5a2bb6] border-violet-300/60 shadow-lg"
             )
               img.h-7.w-7(
-                src="/images/icons/gears_128x128.webp"
+                :src="gearsIconUrl"
                 alt="upgrades"
                 style="filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6))"
               )
@@ -323,8 +361,8 @@ const stage1IdleHintActive = computed(() => {
         div.rounded-2xl.border-2.px-4.py-2.text-center.text-white(
           class="bg-black/60 border-violet-500 backdrop-blur-sm"
         )
-          div.font-black.uppercase.tracking-wider(class="game-text text-violet-200 text-base sm:text-lg") Cook in the Heat Zone
-          div.text-slate-200(class="leading-tight max-w-xs text-xs sm:text-sm") Drag bodies into the glowing ring · Wait 10s to make them RIPE · Drop ripe bodies into the Sun for big Heat
+          div.font-black.uppercase.tracking-wider(class="game-text text-violet-200 text-base sm:text-lg") {{ t('game.starter.title') }}
+          div.text-slate-200(class="leading-tight max-w-xs text-xs sm:text-sm") {{ t('game.starter.body') }}
 
     //- Tutorial overlay (auto-starts for first-time players)
     SolTutorialOverlay

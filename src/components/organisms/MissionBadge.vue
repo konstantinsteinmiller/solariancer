@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import useSolMission from '@/use/useSolMission'
 
 const props = defineProps<{ compact?: boolean }>()
 const { missionActive, missionTimeLeft, missionProgress, missionEarned, missionGoal } = useSolMission()
+const { t } = useI18n()
 
 const formatTime = (s: number): string => {
   const m = Math.floor(s / 60)
@@ -30,7 +32,7 @@ const isUrgent = computed(() => missionTimeLeft.value < 30)
       div.h-2.w-2.rounded-full.bg-white
     div.flex.flex-col.leading-none(class="min-w-[6.5rem]")
       div.flex.items-baseline.gap-1.justify-between
-        span.uppercase.tracking-wider.text-sky-200.font-black(class="game-text text-[10px]") Mission
+        span.uppercase.tracking-wider.text-sky-200.font-black(class="game-text text-[10px]") {{ t('game.hud.mission') }}
         span.font-black.tabular-nums(
           class="game-text text-[10px]"
           :class="isUrgent ? 'text-red-300' : 'text-sky-300'"

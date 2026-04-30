@@ -1,9 +1,16 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import FModal from '@/components/molecules/FModal.vue'
 import useSolMission, { type MissionReward } from '@/use/useSolMission'
 
 const { missionAchieved, missionRewards, claimReward } = useSolMission()
+const { t } = useI18n()
+// Modal pulls reward titles + descriptions from i18n by id — composable
+// stores `id` only. Component shapes the lookups so multiple languages
+// work without changing the data layer.
+const rewardTitle = (id: MissionReward['id']) => t(`game.mission.reward.${id}.title`)
+const rewardDescription = (id: MissionReward['id']) => t(`game.mission.reward.${id}.description`)
 
 const isOpen = computed(() => missionAchieved.value && missionRewards.value.length > 0)
 
@@ -42,11 +49,11 @@ const iconFor = (id: MissionReward['id']): string => {
   FModal(
     :model-value="isOpen"
     :is-closable="false"
-    title="Mission Complete"
+    :title="t('game.modal.missionComplete')"
   )
     div.flex.flex-col.p-1(class="gap-2 sm:gap-3")
       div.text-center.font-black.uppercase.tracking-wider(class="text-sky-200 game-text text-xs sm:text-sm")
-        | Choose your reward
+        | {{ t('game.modal.chooseReward') }}
       //- Cards stack vertically on phones, 3-column grid on tablet+ so the
       //- modal fits without scrolling on either form factor.
       div.grid(class="grid-cols-1 sm:grid-cols-3 gap-2")
@@ -67,6 +74,6 @@ const iconFor = (id: MissionReward['id']): string => {
               ) {{ iconFor(reward.id) }}
               span.font-black.uppercase.tracking-wider.text-white(
                 class="game-text text-xs sm:text-sm"
-              ) {{ reward.title }}
-            div.text-white(class="leading-tight text-[11px] sm:text-xs opacity-90") {{ reward.description }}
+              ) {{ rewardTitle(reward.id) }}
+            div.text-white(class="leading-tight text-[11px] sm:text-xs opacity-90") {{ rewardDescription(reward.id) }}
 </template>

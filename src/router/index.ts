@@ -6,7 +6,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/',
     name: 'main-menu',
-    component: () => import('@/views/SolKeeperGame.vue'),
+    component: () => import('@/views/SolariancerGame.vue'),
     children: []
   }
 ]

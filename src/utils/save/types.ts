@@ -3,8 +3,8 @@
 // The game uses the browser's synchronous `localStorage` as the source of
 // truth at runtime — ~15 module-level reads fire during app bootstrap and
 // many components write back on change. Each environment (plain web,
-// CrazyGames, Glitch) layers a different *backend* on top of that local
-// mirror to persist progress between devices.
+// CrazyGames, Glitch, GameDistribution) layers a different *backend* on top
+// of that local mirror to persist progress between devices.
 //
 // Rather than scatter build-flag branches through every call site, each
 // backend is implemented as a `SaveStrategy`. `SaveManager` picks one at
@@ -28,9 +28,48 @@ export interface LocalStorageAccessor {
   keys(): string[]
 }
 
+/** State machine for the bulletproof hydrate protocol. A strategy starts
+ *  in `'pending'` and transitions to one of the terminal-or-retry states
+ *  during `hydrate()`:
+ *
+ *  - `'success-with-data'`  — cloud reachable, payload restored.
+ *  - `'success-empty'`      — cloud reachable, no payload (fresh account).
+ *  - `'failed-retrying'`    — cloud unreachable / transient error; the
+ *                              strategy will retry in the background.
+ *  - `'failed-final'`       — gave up; localStorage stays authoritative.
+ *
+ *  Why the discriminator matters: a transient SDK error during boot must
+ *  NOT be confused with "remote confirmed empty". Without it, a brief
+ *  outage at boot would wipe the player's local progress on the next
+ *  remote-wins decision. See the `bulletproof-save-manager` skill for the
+ *  full failure mode.
+ */
+export type HydrateState =
+  | 'pending'
+  | 'success-with-data'
+  | 'success-empty'
+  | 'failed-retrying'
+  | 'failed-final'
+
+export interface HydrateNotice {
+  state: HydrateState
+  /** Human-readable note for logs / banner UIs. */
+  reason?: string
+  /** Coins awarded as a "remote-wins" cushion, if any. UI surfaces this
+   *  as a toast/banner when set. */
+  bonusCoins?: number
+}
+
+export type HydrateNoticeListener = (notice: HydrateNotice) => void
+
 export interface SaveStrategy {
   /** Short human-readable name used in logs and for testing. */
   readonly name: string
+
+  /** Current state machine position — set by the strategy during
+   *  `hydrate()` / `retryHydrate()`. Optional for back-compat with strategies
+   *  that don't implement the bulletproof protocol yet (LocalStorage). */
+  readonly hydrateState?: HydrateState
 
   /**
    * Pull authoritative state from the backend into localStorage. Must
@@ -43,6 +82,16 @@ export interface SaveStrategy {
    * still works on its own — failing hydrate must never brick the game.
    */
   hydrate(local: LocalStorageAccessor): Promise<void>
+
+  /** Background retry hook for strategies that ended `hydrate()` in
+   *  `'failed-retrying'`. SaveManager schedules this on a backoff after
+   *  a failed initial hydrate. Resolves with the new state. */
+  retryHydrate?(local: LocalStorageAccessor): Promise<HydrateState>
+
+  /** Subscribe to `hydrateState` transitions. Used by `useSaveStatus` to
+   *  bump `saveDataVersion` so composables can re-read localStorage when
+   *  a delayed retry succeeds. Returns an unsubscribe function. */
+  onHydrateNotice?(listener: HydrateNoticeListener): () => void
 
   /**
    * Called every time application code writes to localStorage (after the
@@ -77,7 +126,7 @@ export const INTERNAL_KEY_PREFIX = '__save_internal__'
  * don't want a cloud save to push them across devices or persist them in
  * a player's account.
  */
-const DEV_LOCAL_KEYS: readonly string[] = ['fps']
+const DEV_LOCAL_KEYS: readonly string[] = ['fps', 'debug', 'campaign-test', 'cheat']
 
 export const isInternalKey = (key: string): boolean =>
   key.startsWith(INTERNAL_KEY_PREFIX) ||

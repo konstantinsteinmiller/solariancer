@@ -1,11 +1,28 @@
 import { computed, ref, watch } from 'vue'
 import type { Ref } from 'vue'
 import useUserDb from '@/use/useUserDb'
-import { type Difficulties, DIFFICULTY } from '@/utils/enums'
+import { type Difficulties, DIFFICULTY, LANGUAGES } from '@/utils/enums'
 import { GAME_USER_LANGUAGE } from '@/utils/constants'
 import { mobileCheck } from '@/utils/function'
 import type { GameCard } from '@/types/game.ts'
 import useModels from '@/use/useModels.ts'
+
+// Detect the player's locale from the browser on first launch. Returns
+// one of the supported codes (`LANGUAGES`) or 'en' as a fallback. Mirrors
+// `resolveInitialLocale` in `@/i18n/index.ts` so the userLanguage ref and
+// the i18n bootstrap agree before IndexedDB hydrates.
+const resolveBrowserLanguage = (): string => {
+  try {
+    const sess = sessionStorage.getItem(GAME_USER_LANGUAGE)
+    if (sess && LANGUAGES.includes(sess)) return sess
+  } catch { /* ignore */
+  }
+  const nav = typeof navigator !== 'undefined'
+    ? navigator.language?.split('-')[0]
+    : undefined
+  if (nav && LANGUAGES.includes(nav)) return nav
+  return 'en'
+}
 
 export const windowWidth = ref(window.innerWidth)
 export const windowHeight = ref(window.innerHeight)
@@ -34,6 +51,8 @@ export const isCrazyWeb = import.meta.env.VITE_APP_CRAZY_WEB === 'true'
 export const isWaveDash = import.meta.env.VITE_APP_WAVEDASH === 'true'
 export const isItch = import.meta.env.VITE_APP_ITCH === 'true'
 export const isGlitch = import.meta.env.VITE_APP_GLITCH === 'true'
+export const isGameDistribution = import.meta.env.VITE_APP_GAME_DISTRIBUTION === 'true'
+export const isY8 = import.meta.env.VITE_APP_Y8 === 'true'
 export const showMediatorAds = import.meta.env.VITE_APP_SHOW_MEDIATOR_ADS === 'true'
 export const isNative = import.meta.env.VITE_APP_NATIVE === 'true'
 export const isWeb = import.meta.env.VITE_APP_NATIVE !== 'true'
@@ -43,7 +62,7 @@ export const version: string = APP_VERSION
 export const userDifficulty: Ref<Difficulties> = ref(DIFFICULTY.MEDIUM)
 const userSoundVolume: Ref<number> = ref(0.7)
 const userMusicVolume: Ref<number> = ref(0.6)
-const userLanguage: Ref<string> = ref(/*navigator?.language?.split('-')[0] || */'en')
+const userLanguage: Ref<string> = ref(resolveBrowserLanguage())
 
 const userTutorialsDoneMap: Ref<any> = ref('{}')
 const tutorialPhase: Ref<string> = ref('')

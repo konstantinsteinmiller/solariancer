@@ -21,13 +21,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 //   • mobile    393×727
 //
 // The fixed-step renderer loop normally drives `physics.tick(dt)`; here
-// we call it directly with FIXED_DT just like `useSolKeeperRenderer`
+// we call it directly with FIXED_DT just like `useSolariancerRenderer`
 // does. With slow-time multiplier active on stage 1, each tick
 // corresponds to FIXED_DT * simSpeedMultiplier real-world seconds of
 // motion — so 60 seconds of wall time = 60 / 0.6 = 100 real seconds of
 // elapsed orbit.
 
-// We do NOT static-import useGravityPhysics or useSolKeeper here — both
+// We do NOT static-import useGravityPhysics or useSolariancer here — both
 // are module singletons and we need to re-load them per test (after
 // changing localStorage) to get a fresh sk + physics state.
 
@@ -244,7 +244,7 @@ const reportAndAssert = (label: string, r: RunResult, sunRadius: number) => {
 
 describe('stage-1 auto-cook orbit stability (jsdom physics)', () => {
   beforeEach(() => {
-    // Drop module cache — useSolKeeper + useGravityPhysics both read
+    // Drop module cache — useSolariancer + useGravityPhysics both read
     // localStorage at module-init, so to test from a different save we
     // must re-evaluate from scratch.
     vi.resetModules()

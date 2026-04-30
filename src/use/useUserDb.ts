@@ -86,7 +86,13 @@ const useUserDb = ({
         }
         userSoundVolume.value = request.result.userSoundVolume
         userMusicVolume.value = request.result.userMusicVolume
-        userLanguage.value = request.result.userLanguage
+        // Only override the browser-detected default when there's an actual
+        // saved value — older records may have an undefined/empty
+        // userLanguage field, and writing that would wipe the navigator
+        // fallback we set in `useUser` at module init.
+        if (request.result.userLanguage) {
+          userLanguage.value = request.result.userLanguage
+        }
 
         if (request.result.userSkipRulesModal) {
           userSkipRulesModal.value = JSON.parse(request.result.userSkipRulesModal)

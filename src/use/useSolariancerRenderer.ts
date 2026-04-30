@@ -6,7 +6,7 @@ import useGravityPhysics, {
   probes, worldScale,
   COOK_TIME_SECONDS, currentZoneWarmup
 } from '@/use/useGravityPhysics'
-import useSolKeeper from '@/use/useSolKeeper'
+import useSolariancer from '@/use/useSolariancer'
 import useSolTutorial from '@/use/useSolTutorial'
 import useSolEvents from '@/use/useSolEvents'
 import useSolAudio from '@/use/useSolAudio'
@@ -389,7 +389,7 @@ export const renderScene = (canvas: HTMLCanvasElement, ctx: CanvasRenderingConte
     lastHeight = H
   }
   // Rebuild sun core when the streak-derived skin tier changes.
-  const sk = useSolKeeper()
+  const sk = useSolariancer()
   const desiredTier = sk.sunSkinTier.value
   if (!sunCoreLayer || sunCoreLayerTier !== desiredTier) {
     sunCoreLayer = buildSunCore(desiredTier)
@@ -566,16 +566,24 @@ export const renderScene = (canvas: HTMLCanvasElement, ctx: CanvasRenderingConte
     // Stage-1 preview — show the singularity's reach and a thin pull
     // hint to the nearest in-range body so the player sees cause-and-
     // effect of where they tapped. Hidden once they've made a ripe-feed.
-    if (sk.stage1HintsActive.value) {
+    // Suppressed during the tutorial — the tutorial draws its own,
+    // labelled spotlights instead and they'd otherwise pile up.
+    if (sk.stage1HintsActive.value && !useSolTutorial().active.value) {
       drawSingularityPreview(ctx, singularityX.value, singularityY.value, range, time)
     }
   }
 
+  // Tutorial highlight pass — spotlights the Sun, Cook Ring, Hot Edge or
+  // draws the labelled gravity-falloff force line, depending on the active
+  // tutorial stage. Drawn ABOVE the singularity so the labels stay legible.
+  drawTutorialHighlight(ctx, cx, cy, sunR, zoneInner, zoneOuter, closeInner, closeOuter, time)
+
   // Stage-1 ghost arrow — pulses from the nearest body NOT in the heat
   // zone, pointing at the heat-zone mid radius. Teaches "drag bodies
   // INTO the ring" without a tutorial bubble. Fades the moment the
-  // player has cooked their first ripe.
-  if (sk.stage1HintsActive.value) {
+  // player has cooked their first ripe. Suppressed during the tutorial —
+  // the tutorial overlay carries its own, named guidance.
+  if (sk.stage1HintsActive.value && !useSolTutorial().active.value) {
     drawHeatZoneArrowHint(ctx, cx, cy, zoneInner, zoneOuter, time)
   }
 
@@ -622,7 +630,7 @@ const drawTrails = (ctx: CanvasRenderingContext2D) => {
   ctx.save()
   ctx.lineCap = 'round'
   // Player-selected trail palette — overrides body-hue when not 'auto'.
-  const palette = useSolKeeper().state.value.preferences.trailPalette
+  const palette = useSolariancer().state.value.preferences.trailPalette
   for (const b of bodies.value) {
     if (b.dead) continue
     const len = b.trail.length / 2
@@ -1354,6 +1362,672 @@ const drawHeatZoneArrowHint = (
   ctx.restore()
 }
 
+// ─── Tutorial highlight pass ──────────────────────────────────────────────
+//
+// Stage-driven, label-bearing spotlights so first-time players learn what
+// "the ring" actually refers to. `drawTutorialHighlight` is called once per
+// frame and dispatches on `useSolTutorial().currentHighlight` (set by the
+// tutorial driver per stage). All copy is pulled from the global i18n
+// instance via `window.__i18n` — translations live in
+// `src/i18n/locales/*.ts` under the `tutorial.canvas.*` namespace.
+const tutorialT = (key: string, fallback: string): string => {
+  const t = (window as any).__i18n?.global?.t
+  if (typeof t !== 'function') return fallback
+  try {
+    const v = t(key)
+    return typeof v === 'string' && v.length > 0 ? v : fallback
+  } catch {
+    return fallback
+  }
+}
+
+const drawTutorialLabel = (
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number,
+  text: string,
+  accent: string,
+  time: number
+) => {
+  ctx.save()
+  const pulse = 0.85 + 0.15 * Math.sin(time * 3)
+  // Floor at 13 px so the label stays readable even on a 320 px-wide phone.
+  const fontSize = Math.max(13, Math.round(15 * worldScale.value))
+  ctx.font = `900 ${fontSize}px Arial, sans-serif`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  const m = ctx.measureText(text)
+  const padX = 10
+  const padY = 5
+  const w = m.width + padX * 2
+  const h = fontSize + padY * 2
+  const r = h / 2
+  const left = x - w / 2
+  const top = y - h / 2
+  // Pill background
+  ctx.fillStyle = `rgba(0, 0, 0, ${0.78 * pulse})`
+  ctx.beginPath()
+  ctx.moveTo(left + r, top)
+  ctx.lineTo(left + w - r, top)
+  ctx.quadraticCurveTo(left + w, top, left + w, top + r)
+  ctx.lineTo(left + w, top + h - r)
+  ctx.quadraticCurveTo(left + w, top + h, left + w - r, top + h)
+  ctx.lineTo(left + r, top + h)
+  ctx.quadraticCurveTo(left, top + h, left, top + h - r)
+  ctx.lineTo(left, top + r)
+  ctx.quadraticCurveTo(left, top, left + r, top)
+  ctx.closePath()
+  ctx.fill()
+  ctx.strokeStyle = accent
+  ctx.lineWidth = 1.5
+  ctx.globalAlpha = 0.9 * pulse
+  ctx.stroke()
+  ctx.globalAlpha = 1
+  ctx.fillStyle = accent
+  ctx.fillText(text, x, y)
+  ctx.restore()
+}
+
+const drawCookRingHighlight = (
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number,
+  inner: number, outer: number,
+  time: number,
+  variant: 'cool' | 'hot'
+) => {
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  const pulse = 0.5 + 0.5 * Math.sin(time * 3.2)
+  const grad = ctx.createRadialGradient(cx, cy, inner, cx, cy, outer)
+  if (variant === 'hot') {
+    grad.addColorStop(0, `rgba(255, 100, 60, ${0.20 + 0.18 * pulse})`)
+    grad.addColorStop(0.5, `rgba(255, 70, 40, ${0.15 + 0.13 * pulse})`)
+    grad.addColorStop(1, 'rgba(255, 70, 40, 0)')
+  } else {
+    grad.addColorStop(0, `rgba(255, 220, 120, ${0.20 + 0.16 * pulse})`)
+    grad.addColorStop(0.5, `rgba(255, 180, 80, ${0.16 + 0.12 * pulse})`)
+    grad.addColorStop(1, 'rgba(255, 180, 80, 0)')
+  }
+  ctx.fillStyle = grad
+  ctx.beginPath()
+  ctx.arc(cx, cy, outer, 0, Math.PI * 2)
+  ctx.arc(cx, cy, inner, 0, Math.PI * 2, true)
+  ctx.fill()
+  ctx.lineWidth = 2.5
+  ctx.strokeStyle = variant === 'hot'
+    ? `rgba(255, 140, 80, ${0.85 + 0.15 * pulse})`
+    : `rgba(255, 220, 140, ${0.80 + 0.20 * pulse})`
+  ctx.setLineDash([12, 7])
+  ctx.lineDashOffset = -time * 36
+  ctx.beginPath()
+  ctx.arc(cx, cy, inner, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.arc(cx, cy, outer, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.setLineDash([])
+  ctx.restore()
+}
+
+const drawSunHighlight = (
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number,
+  sunR: number,
+  time: number
+) => {
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  const pulse = 0.5 + 0.5 * Math.sin(time * 3.2)
+  const r = sunR * (1.30 + 0.10 * pulse)
+  const grad = ctx.createRadialGradient(cx, cy, sunR * 0.9, cx, cy, r)
+  grad.addColorStop(0, `rgba(255, 240, 200, ${0.40 + 0.20 * pulse})`)
+  grad.addColorStop(0.5, `rgba(255, 200, 120, ${0.28 + 0.15 * pulse})`)
+  grad.addColorStop(1, 'rgba(255, 200, 120, 0)')
+  ctx.fillStyle = grad
+  ctx.beginPath()
+  ctx.arc(cx, cy, r, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.lineWidth = 2.5
+  ctx.strokeStyle = `rgba(255, 240, 180, ${0.80 + 0.20 * pulse})`
+  ctx.setLineDash([10, 6])
+  ctx.lineDashOffset = -time * 30
+  ctx.beginPath()
+  ctx.arc(cx, cy, sunR + 4, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.setLineDash([])
+  ctx.restore()
+}
+
+// Gravity-falloff demo — draws a labelled force line between the
+// singularity and the demo asteroid. Line thickness/colour track the live
+// distance so the lesson "closer = stronger pull" reads visually without
+// the player needing to follow the body's motion.
+const drawPullFalloffHighlight = (
+  ctx: CanvasRenderingContext2D,
+  time: number
+) => {
+  const tut = useSolTutorial()
+  if (!tut.falloffActive.value) return
+  if (!singularityActive.value) return
+  const bodyId = tut.tutorialBodyId.value
+  if (bodyId == null) return
+  let body: typeof bodies.value[number] | null = null
+  for (const b of bodies.value) {
+    if (b.id === bodyId && !b.dead) {
+      body = b
+      break
+    }
+  }
+  if (!body) return
+  const sx = singularityX.value
+  const sy = singularityY.value
+  const bx = body.x
+  const by = body.y
+  const dx = bx - sx
+  const dy = by - sy
+  const d = Math.hypot(dx, dy)
+  if (d < 1) return
+  const minD = tut.falloffMinDistance.value
+  const maxD = tut.falloffMaxDistance.value
+  // Strength = 1 when at minD (close), 0 when at maxD (far). Mix linear
+  // and quadratic so the "weak" end isn't a featureless flat line.
+  const norm = Math.max(0, Math.min(1, 1 - (d - minD) / Math.max(1, maxD - minD)))
+  const strength = norm * norm * 0.7 + norm * 0.3
+  const r = 255
+  const g = Math.round(220 - 140 * strength)
+  const blue = Math.round(80 + 20 * strength)
+  const colorRGB = `${r}, ${g}, ${blue}`
+
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  ctx.lineCap = 'round'
+  ctx.strokeStyle = `rgba(${colorRGB}, ${0.25 + 0.30 * strength})`
+  ctx.lineWidth = 6 + 14 * strength
+  ctx.beginPath()
+  ctx.moveTo(sx, sy)
+  ctx.lineTo(bx, by)
+  ctx.stroke()
+  ctx.strokeStyle = `rgba(${colorRGB}, ${0.7 + 0.3 * strength})`
+  ctx.lineWidth = 1.5 + 4 * strength
+  ctx.beginPath()
+  ctx.moveTo(sx, sy)
+  ctx.lineTo(bx, by)
+  ctx.stroke()
+
+  // Marching arrowheads from the singularity toward the body — more
+  // when the pull is strong, fewer when weak. Communicates direction.
+  const headCount = 2 + Math.round(3 * strength)
+  const phase = (time * (0.6 + 0.7 * strength)) % 1
+  const nx = dx / d
+  const ny = dy / d
+  const perpX = -ny
+  const perpY = nx
+  for (let i = 0; i < headCount; i++) {
+    const u = (phase + i / headCount) % 1
+    if (u < 0.05 || u > 0.95) continue
+    const px = sx + dx * u
+    const py = sy + dy * u
+    const headLen = 7 + 5 * strength
+    const wing = 5 + 3 * strength
+    ctx.fillStyle = `rgba(${colorRGB}, ${0.6 + 0.4 * strength})`
+    ctx.beginPath()
+    ctx.moveTo(px + nx * headLen, py + ny * headLen)
+    ctx.lineTo(px + perpX * wing, py + perpY * wing)
+    ctx.lineTo(px - perpX * wing, py - perpY * wing)
+    ctx.closePath()
+    ctx.fill()
+  }
+  ctx.restore()
+
+  // Label — flips between "CLOSE = STRONG" and "FAR = WEAK" depending on
+  // live distance. Anchored a little above the line midpoint.
+  const labelKey = strength > 0.55 ? 'tutorial.canvas.pullClose' : 'tutorial.canvas.pullFar'
+  const labelFallback = strength > 0.55 ? 'CLOSE = STRONG' : 'FAR = WEAK'
+  const labelText = tutorialT(labelKey, labelFallback)
+  const accent = strength > 0.55 ? '#ff8a3d' : '#ffd966'
+  const mx = (sx + bx) / 2
+  const my = (sy + by) / 2 - 22
+  drawTutorialLabel(ctx, mx, my, labelText, accent, time)
+}
+
+// ─── Ghost pointer ──────────────────────────────────────────────────────
+//
+// Animated cursor / fingertip drawn at the singularity position during demo
+// stages. Establishes the visual metaphor "this glowing dot IS your finger"
+// — critical for kid players who otherwise may not grasp that the singularity
+// is the player's input. Three pulse rings tap-tap-tap out from it.
+const isTouchDeviceForTutorial = (): boolean =>
+  typeof window !== 'undefined' &&
+  ('ontouchstart' in window || (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0))
+
+const drawGhostPointer = (
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number,
+  time: number
+) => {
+  const isTouch = isTouchDeviceForTutorial()
+  // Pulse rings — three staggered, expanding outward.
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  for (let i = 0; i < 3; i++) {
+    const phase = ((time * 0.85 + i / 3) % 1)
+    const r = 8 + phase * 32
+    const alpha = 0.42 * (1 - phase)
+    if (alpha < 0.04) continue
+    ctx.strokeStyle = `rgba(255, 230, 180, ${alpha})`
+    ctx.lineWidth = 2 - phase * 1.4
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.stroke()
+  }
+  ctx.restore()
+  // Cursor / finger glyph. Drawn AFTER the pulse rings so it sits on top
+  // and doesn't get washed out by the additive blend.
+  ctx.save()
+  ctx.translate(x, y)
+  // Soft drop-shadow fill so the icon reads against bright backgrounds.
+  ctx.fillStyle = '#fff8e1'
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.65)'
+  ctx.lineWidth = 1.5
+  ctx.lineJoin = 'round'
+  if (isTouch) {
+    // Stylised fingertip — vertical pill with a rounded tip pointing up.
+    ctx.beginPath()
+    ctx.moveTo(0, -10)
+    ctx.bezierCurveTo(7, -10, 9, -4, 9, 4)
+    ctx.bezierCurveTo(9, 12, 5, 18, 0, 18)
+    ctx.bezierCurveTo(-5, 18, -9, 12, -9, 4)
+    ctx.bezierCurveTo(-9, -4, -7, -10, 0, -10)
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+    // Nail crescent at the tip.
+    ctx.fillStyle = 'rgba(255, 200, 160, 0.85)'
+    ctx.beginPath()
+    ctx.arc(0, -4, 4, Math.PI, 0, false)
+    ctx.fill()
+  } else {
+    // Mouse cursor (standard arrow-pointer outline).
+    ctx.beginPath()
+    ctx.moveTo(-4, -4)
+    ctx.lineTo(10, 6)
+    ctx.lineTo(3, 6)
+    ctx.lineTo(8, 14)
+    ctx.lineTo(4, 16)
+    ctx.lineTo(-1, 8)
+    ctx.lineTo(-7, 12)
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
+const drawCircleHint = (
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number,
+  r: number,
+  time: number
+) => {
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  const pulse = 0.6 + 0.3 * Math.sin(time * 3)
+  ctx.strokeStyle = `rgba(255, 220, 140, ${0.55 * pulse + 0.25})`
+  ctx.lineWidth = 2.5
+  ctx.setLineDash([12, 8])
+  ctx.lineDashOffset = -time * 60
+  ctx.beginPath()
+  ctx.arc(cx, cy, r, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.setLineDash([])
+  // Tangent arrowhead — sweeps around the circle showing direction of motion.
+  const angle = (time * 1.4) % (Math.PI * 2)
+  const tipX = cx + Math.cos(angle) * r
+  const tipY = cy + Math.sin(angle) * r
+  const tx = -Math.sin(angle)
+  const ty = Math.cos(angle)
+  const px = -ty
+  const py = tx
+  const headLen = 14
+  const wing = 7
+  ctx.fillStyle = 'rgba(255, 230, 140, 0.95)'
+  ctx.beginPath()
+  ctx.moveTo(tipX + tx * headLen, tipY + ty * headLen)
+  ctx.lineTo(tipX + px * wing, tipY + py * wing)
+  ctx.lineTo(tipX - px * wing, tipY - py * wing)
+  ctx.closePath()
+  ctx.fill()
+  ctx.restore()
+}
+
+const drawTutorialArrow = (
+  ctx: CanvasRenderingContext2D,
+  fromX: number, fromY: number,
+  toX: number, toY: number,
+  time: number,
+  color: string
+) => {
+  const dx = toX - fromX
+  const dy = toY - fromY
+  const d = Math.hypot(dx, dy)
+  if (d < 1) return
+  const nx = dx / d
+  const ny = dy / d
+  // Stop the arrow short of the destination so the head doesn't cover it.
+  const headOffset = Math.min(28, d * 0.18)
+  const ex = toX - nx * headOffset
+  const ey = toY - ny * headOffset
+
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  const pulse = 0.6 + 0.4 * Math.sin(time * 4)
+  ctx.strokeStyle = `${color}${Math.round((0.45 + 0.35 * pulse) * 255).toString(16).padStart(2, '0')}`
+  ctx.lineWidth = 4
+  ctx.setLineDash([14, 10])
+  ctx.lineDashOffset = -time * 80
+  ctx.beginPath()
+  ctx.moveTo(fromX, fromY)
+  ctx.lineTo(ex, ey)
+  ctx.stroke()
+  ctx.setLineDash([])
+
+  // Big arrowhead at the destination.
+  const px = -ny
+  const py = nx
+  const headLen = 18
+  const wing = 11
+  ctx.fillStyle = color
+  ctx.globalAlpha = 0.85 + 0.15 * pulse
+  ctx.beginPath()
+  ctx.moveTo(toX, toY)
+  ctx.lineTo(toX - nx * headLen + px * wing, toY - ny * headLen + py * wing)
+  ctx.lineTo(toX - nx * headLen - px * wing, toY - ny * headLen - py * wing)
+  ctx.closePath()
+  ctx.fill()
+  ctx.restore()
+}
+
+// ─── Hot Edge dual-rock demo (advanced tutorial card 3) ──────────────
+//
+// Two schematic asteroids drawn on opposite sides of the Sun:
+//
+//   • Cool rock, on the OUTER cook-ring orbit — slow cook bar.
+//   • Hot rock, on the close-zone (Hot Edge) orbit — 30 % faster cook bar.
+//
+// Both bars fill simultaneously over a ~5 s loop. The hot-edge bar tops out
+// first and flashes "RIPE!", visually proving the speed advantage. Replaces
+// the old text-only label which playtesters didn't grok.
+const HOT_EDGE_LOOP_S = 4.5
+const drawSchematicRock = (
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, r: number,
+  time: number, cookT: number
+) => {
+  ctx.save()
+  ctx.translate(x, y)
+  ctx.rotate(time * 0.4)
+  // Rock body — gray-brown.
+  ctx.fillStyle = '#8c7a64'
+  ctx.beginPath()
+  ctx.arc(0, 0, r, 0, Math.PI * 2)
+  ctx.fill()
+  // Crater details so it reads as a rock and not a flat circle.
+  ctx.fillStyle = '#6b5b48'
+  ctx.beginPath()
+  ctx.arc(-r * 0.4, -r * 0.3, r * 0.25, 0, Math.PI * 2)
+  ctx.arc(r * 0.3, r * 0.4, r * 0.2, 0, Math.PI * 2)
+  ctx.fill()
+  // Heat overlay tint — yellow → orange → red as cook progresses.
+  if (cookT > 0.05) {
+    const alpha = Math.min(0.7, cookT * 0.7)
+    const hue = 60 - cookT * 60
+    ctx.globalCompositeOperation = 'overlay'
+    ctx.fillStyle = `hsla(${hue}, 95%, 60%, ${alpha})`
+    ctx.beginPath()
+    ctx.arc(0, 0, r, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  ctx.restore()
+  // Ripe halo — pulses when cooked through.
+  if (cookT >= 0.99) {
+    ctx.save()
+    ctx.globalCompositeOperation = 'lighter'
+    const pulse = 0.65 + 0.35 * Math.sin(time * 6)
+    const halo = ctx.createRadialGradient(x, y, r * 0.9, x, y, r * 2.4)
+    halo.addColorStop(0, `rgba(255, 220, 120, ${0.55 * pulse})`)
+    halo.addColorStop(1, 'rgba(255, 220, 120, 0)')
+    ctx.fillStyle = halo
+    ctx.beginPath()
+    ctx.arc(x, y, r * 2.4, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.strokeStyle = `rgba(255, 230, 140, ${0.55 + 0.35 * pulse})`
+    ctx.lineWidth = 2.5
+    ctx.beginPath()
+    ctx.arc(x, y, r + 4, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.restore()
+  }
+}
+
+const drawCookProgressBar = (
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number,
+  t: number, variant: 'cool' | 'hot'
+) => {
+  const h = 7
+  ctx.save()
+  // Background trough (dark, with a thin border).
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.78)'
+  ctx.fillRect(x - w / 2 - 1.5, y - h / 2 - 1.5, w + 3, h + 3)
+  // Progress fill — yellow→red gradient on hot, yellow→orange on cool.
+  const progress = Math.max(0, Math.min(1, t))
+  const hueStart = variant === 'hot' ? 50 : 55
+  const hueEnd = variant === 'hot' ? 0 : 28
+  const hue = hueStart - (hueStart - hueEnd) * progress
+  ctx.fillStyle = `hsl(${hue}, 95%, ${variant === 'hot' ? 55 : 58}%)`
+  ctx.fillRect(x - w / 2, y - h / 2, w * progress, h)
+  // Thin highlight on top of the fill — reads as glossy / "lit".
+  if (progress > 0.02) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.30)'
+    ctx.fillRect(x - w / 2, y - h / 2, w * progress, 1.5)
+  }
+  ctx.restore()
+}
+
+const drawHotEdgeDemo = (
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number,
+  zoneInner: number, zoneOuter: number,
+  closeInner: number, closeOuter: number,
+  time: number
+) => {
+  // Highlight underlay — same pulsing red corridor used before.
+  drawCookRingHighlight(ctx, cx, cy, closeInner, closeOuter, time, 'hot')
+  // Dim hint of the regular zone so the comparison reads as "two zones".
+  drawCookRingHighlight(ctx, cx, cy, zoneInner, zoneOuter, time, 'cool')
+
+  const closeMid = (closeInner + closeOuter) / 2
+  const zoneMid = (zoneInner + zoneOuter) / 2
+  // Loop phase 0..1 — both rocks share it; hot one fills 1.3× faster
+  // (matches CLOSE_ZONE_COOK_BONUS in useGravityPhysics).
+  const phase = (time / HOT_EDGE_LOOP_S) % 1
+  const coolT = phase
+  const hotT = Math.min(1, phase * 1.3)
+
+  // Hot rock — right side, on the close-zone orbit. Drawn first so the
+  // label below stays readable when the ripe-halo on the cool one fires.
+  const hotX = cx + closeMid
+  const hotY = cy
+  drawSchematicRock(ctx, hotX, hotY, 12, time, hotT)
+  drawCookProgressBar(ctx, hotX, hotY - 26, 56, hotT, 'hot')
+  drawTutorialLabel(
+    ctx, hotX, hotY + 30,
+    tutorialT('tutorial.canvas.cookFast', 'FAST COOK'),
+    '#ff6a3d', time
+  )
+
+  // Cool rock — left side, on the regular cook-ring orbit.
+  const coolX = cx - zoneMid
+  const coolY = cy
+  drawSchematicRock(ctx, coolX, coolY, 12, time, coolT)
+  drawCookProgressBar(ctx, coolX, coolY - 26, 56, coolT, 'cool')
+  drawTutorialLabel(
+    ctx, coolX, coolY + 30,
+    tutorialT('tutorial.canvas.cookSlow', 'SLOW COOK'),
+    '#ffd966', time
+  )
+
+  // RIPE flash above the hot rock when its bar tops out — the punchline
+  // of the demo. Disappears after a brief window so the loop reads cleanly.
+  if (hotT >= 0.99 && phase < 0.85) {
+    drawTutorialLabel(
+      ctx, hotX, hotY - 50,
+      tutorialT('tutorial.canvas.ripeNow', 'RIPE!'),
+      '#ffd14a', time
+    )
+  }
+
+  // Anchor-label for the band itself, kept so the player still knows what
+  // the red corridor is called.
+  const labelAngle = Math.PI * 0.20
+  const lx = cx + Math.cos(labelAngle) * (closeOuter + zoneOuter) * 0.5
+  const ly = cy + Math.sin(labelAngle) * (closeOuter + zoneOuter) * 0.5
+  drawTutorialLabel(
+    ctx, lx, ly,
+    tutorialT('tutorial.canvas.hotEdge', 'HOT EDGE'),
+    '#ff8a3d', time
+  )
+}
+
+// ─── Active-stage helpers (intro tutorial only) ─────────────────────
+//
+// `findTutorialBody` matches the demo asteroid by id — the tutorial driver
+// stores the id when it spawns the body so the renderer can locate it
+// without relying on bodies-array ordering.
+const findTutorialBody = (
+  bodyId: number | null
+): typeof bodies.value[number] | null => {
+  if (bodyId == null) return null
+  for (const b of bodies.value) {
+    if (b.id === bodyId && !b.dead) return b
+  }
+  return null
+}
+
+const drawTutorialHighlight = (
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number,
+  sunR: number,
+  zoneInner: number, zoneOuter: number,
+  closeInner: number, closeOuter: number,
+  time: number
+) => {
+  const tut = useSolTutorial()
+  const kind = tut.currentHighlight.value
+  if (kind === 'none') return
+
+  // Hot-edge advanced card is its own dedicated demo — no extra dispatch.
+  if (kind === 'closeBand') {
+    drawHotEdgeDemo(ctx, cx, cy, zoneInner, zoneOuter, closeInner, closeOuter, time)
+    return
+  }
+
+  // Underlay highlights — Sun pulse and Cook Ring corridor.
+  if (kind === 'sunAndCookRing' || kind === 'sun') {
+    drawSunHighlight(ctx, cx, cy, sunR, time)
+  }
+  if (kind === 'sunAndCookRing' || kind === 'cookRing') {
+    drawCookRingHighlight(ctx, cx, cy, zoneInner, zoneOuter, time, 'cool')
+  }
+  if (kind === 'pullFalloff') {
+    drawPullFalloffHighlight(ctx, time)
+  }
+
+  // Stage-specific overlays + ghost pointer (intro mode only).
+  const isIntro = tut.mode.value === 'intro'
+  const stageId = isIntro ? tut.currentStageId.value : 'none'
+  const tutBody = isIntro ? findTutorialBody(tut.tutorialBodyId.value) : null
+
+  // Ghost pointer at the singularity for stages where the player is being
+  // shown the "press / drag" gesture. `meet` (no input) and `falloff`
+  // (already has its own labelled force line) skip the pointer.
+  const showPointer =
+    isIntro &&
+    singularityActive.value &&
+    (stageId === 'pullIn' || stageId === 'steer' || stageId === 'feed')
+  if (showPointer) {
+    drawGhostPointer(ctx, singularityX.value, singularityY.value, time)
+  }
+
+  // Stage-specific instructions.
+  if (stageId === 'meet') {
+    // Static labels — pin the named structures so the player learns the
+    // vocabulary the cards use.
+    drawTutorialLabel(
+      ctx, cx, cy + sunR + 22,
+      tutorialT('tutorial.canvas.sun', 'THE SUN'),
+      '#ffd14a', time
+    )
+    const labelAngle = -Math.PI * 0.30
+    const lx = cx + Math.cos(labelAngle) * (zoneOuter + 16)
+    const ly = cy + Math.sin(labelAngle) * (zoneOuter + 16)
+    drawTutorialLabel(
+      ctx, lx, ly,
+      tutorialT('tutorial.canvas.cookRing', 'COOK RING'),
+      '#ffae6a', time
+    )
+  } else if (stageId === 'pullIn') {
+    // "DRAG INTO RING" big label near the moving pointer.
+    drawTutorialLabel(
+      ctx, singularityX.value, singularityY.value - 38,
+      tutorialT('tutorial.canvas.dragHere', 'DRAG INTO RING'),
+      '#ffae6a', time
+    )
+  } else if (stageId === 'steer' && tutBody) {
+    // Circular sweep indicator + label — proves "circle the rock".
+    drawCircleHint(ctx, tutBody.x, tutBody.y, 36, time)
+    drawTutorialLabel(
+      ctx, tutBody.x, tutBody.y - 56,
+      tutorialT('tutorial.canvas.circleIt', 'CIRCLE THE ROCK'),
+      '#ffd14a', time
+    )
+  } else if (stageId === 'feed' && tutBody) {
+    // Big arrow from body → sun, "DROP IN SUN!" label at the midpoint,
+    // "RIPE!" badge above the body.
+    drawTutorialArrow(ctx, tutBody.x, tutBody.y, cx, cy, time, '#ff8a3d')
+    drawTutorialLabel(
+      ctx, (tutBody.x + cx) / 2, (tutBody.y + cy) / 2 - 22,
+      tutorialT('tutorial.canvas.feedSun', 'DROP IN SUN!'),
+      '#ff8a3d', time
+    )
+    drawTutorialLabel(
+      ctx, tutBody.x, tutBody.y - 38,
+      tutorialT('tutorial.canvas.ripeNow', 'RIPE!'),
+      '#ffd14a', time
+    )
+  }
+
+  // Advanced cards keep the simple sun / ring labels (closeBand handled above).
+  if (!isIntro) {
+    if (kind === 'sun' || kind === 'sunAndCookRing') {
+      drawTutorialLabel(
+        ctx, cx, cy + sunR + 22,
+        tutorialT('tutorial.canvas.sun', 'THE SUN'),
+        '#ffd14a', time
+      )
+    }
+    if (kind === 'cookRing' || kind === 'sunAndCookRing') {
+      const labelAngle = -Math.PI * 0.30
+      const lx = cx + Math.cos(labelAngle) * (zoneOuter + 16)
+      const ly = cy + Math.sin(labelAngle) * (zoneOuter + 16)
+      drawTutorialLabel(
+        ctx, lx, ly,
+        tutorialT('tutorial.canvas.cookRing', 'COOK RING'),
+        '#ffae6a', time
+      )
+    }
+  }
+}
+
 const drawParticles = (ctx: CanvasRenderingContext2D) => {
   ctx.save()
   ctx.globalCompositeOperation = 'lighter'
@@ -1435,7 +2109,7 @@ let fpsAccum = 0
 export const startRenderLoop = (canvas: HTMLCanvasElement) => {
   const ctx = canvas.getContext('2d', { alpha: false })!
   const physics = useGravityPhysics()
-  const sk = useSolKeeper()
+  const sk = useSolariancer()
   const tutorial = useSolTutorial()
   const events = useSolEvents()
   const audio = useSolAudio()

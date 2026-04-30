@@ -1,9 +1,11 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { Ref } from 'vue'
-import useSolKeeper from '@/use/useSolKeeper'
+import useSolariancer from '@/use/useSolariancer'
+import { loadSection, saveSection } from '@/utils/save/solStore'
+import { saveDataVersion } from '@/use/useSaveStatus'
 
 /**
- * Sol Keeper Battle Pass — 100 stages, 100 xp per stage.
+ * Solariancer Battle Pass — 100 stages, 100 xp per stage.
  *
  * XP sources (all routed through `awardStageAdvance` / `awardCombo`):
  *   • Game stage advance         → +50 xp (half a BP stage; two game-stages
@@ -13,11 +15,11 @@ import useSolKeeper from '@/use/useSolKeeper'
  *
  * Rewards alternate between Heat (the "coins" track — most stages) and
  * Star Matter (the rarer "showcase" track — every 10 stages). Both pay
- * straight into `useSolKeeper` on claim, so the player sees the heat /
+ * straight into `useSolariancer` on claim, so the player sees the heat /
  * matter bar tick up in the HUD the moment they tap Claim.
  *
  * Persisted to localStorage. The previous chaos-arena schema (skin offers,
- * season expiry tied to honor track) has been stripped — Sol Keeper has
+ * season expiry tied to honor track) has been stripped — Solariancer has
  * no skin economy and no PvP honor track.
  */
 
@@ -39,8 +41,6 @@ export const BP_COMBO_THRESHOLD = 3
  *  Spaced every 10 levels — same cadence the legacy "skin every 10" used,
  *  reframed as the rarer prestige currency. */
 export const BP_MATTER_STAGES = new Set<number>([10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
-
-const STORAGE_KEY = 'sol_battle_pass_v1'
 
 // ─── State ──────────────────────────────────────────────────────────────────
 
@@ -77,10 +77,8 @@ const isSeasonExpired = (startedAt: string | null): boolean => {
 }
 
 const loadState = (): BattlePassState => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return defaultState()
-    const parsed = JSON.parse(raw)
+  return loadSection('battlePass', defaultState(), (raw) => {
+    const parsed = raw as any
     if (
       typeof parsed?.xp !== 'number' ||
       typeof parsed?.unlockedStages !== 'number' ||
@@ -98,15 +96,18 @@ const loadState = (): BattlePassState => {
     }
     if (isSeasonExpired(loaded.seasonStartedAt)) return defaultState()
     return loaded
-  } catch {
-    return defaultState()
-  }
+  })
 }
 
 const state: Ref<BattlePassState> = ref(loadState())
 
+// Pick up late cloud-hydrated values — same pattern as useSolariancer.
+watch(saveDataVersion, () => {
+  state.value = loadState()
+})
+
 const saveState = () => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.value))
+  saveSection('battlePass', state.value)
 }
 
 // ─── Reward Table ───────────────────────────────────────────────────────────
@@ -165,12 +166,12 @@ const addXp = (amount: number) => {
   saveState()
 }
 
-/** XP for advancing one game stage. Called from useSolKeeper.addHeat
+/** XP for advancing one game stage. Called from useSolariancer.addHeat
  *  every time the heat-bar cascade rolls the stage counter up. */
 export const awardStageAdvance = () => addXp(BP_XP_PER_GAME_STAGE)
 
 /** XP for a ripe-feed that lands while the combo chain is at or above
- *  BP_COMBO_THRESHOLD. Called from useSolKeeper.registerRipeFeed. */
+ *  BP_COMBO_THRESHOLD. Called from useSolariancer.registerRipeFeed. */
 export const awardCombo = () => addXp(BP_XP_PER_COMBO)
 
 // ─── Claim ──────────────────────────────────────────────────────────────────
@@ -186,7 +187,7 @@ const claimStage = (stage: number): ClaimResult | null => {
   if (stage > state.value.unlockedStages) return null
   if (state.value.claimedStages.includes(stage)) return null
 
-  const sk = useSolKeeper()
+  const sk = useSolariancer()
   const heat = bpIsMatterStage(stage) ? 0 : bpHeatReward(stage)
   const matter = bpIsMatterStage(stage) ? bpMatterReward(stage) : 0
 

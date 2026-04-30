@@ -1,8 +1,9 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { Ref } from 'vue'
-import type { SolKeeperState, UpgradeDef, UpgradeId } from '@/types/solkeeper'
+import type { SolariancerState, UpgradeDef, UpgradeId } from '@/types/Solariancer'
+import { saveDataVersion } from '@/use/useSaveStatus'
 // Battle Pass XP hooks. Static import — both modules form a cycle
-// (useBattlePass -> useSolKeeper for the claim payout), but neither calls
+// (useBattlePass -> useSolariancer for the claim payout), but neither calls
 // the other's bindings during module-init, so the hoisted bindings are
 // defined by the time gameplay actually fires them.
 import {
@@ -10,8 +11,7 @@ import {
   awardCombo as bpAwardCombo,
   BP_COMBO_THRESHOLD
 } from '@/use/useBattlePass'
-
-const STORAGE_KEY = 'sol_state_v1'
+import { loadSection, saveSection } from '@/utils/save/solStore'
 
 // ─── Combo tuning ──────────────────────────────────────────────────────────
 const COMBO_WINDOW = 5            // s — max gap between ripe feeds to keep the chain
@@ -26,6 +26,9 @@ const COMBO_THRESHOLD_3X = 5      // chained feeds → ×3
 export const stageHeatGoal = (stage: number) => 500 + 500 * stage
 
 // Names of the visible stage themes — cycles through these. Index = (stage - 1) % length.
+// English fallbacks; localised display names live in the i18n locale files
+// under `game.stageType.<id>`. STAGE_TYPE_IDS is the parallel id list that
+// drives those lookups.
 export const STAGE_TYPES = [
   'G-Type',         // yellow-white sun
   'K-Type',         // orange dwarf
@@ -36,6 +39,30 @@ export const STAGE_TYPES = [
   'Brown Dwarf',    // failed star
   'Neutron'         // ultra-dense
 ] as const
+export const STAGE_TYPE_IDS = [
+  'gType', 'kType', 'mType', 'redGiant',
+  'blueDwarf', 'whiteDwarf', 'brownDwarf', 'neutron'
+] as const
+
+// Resolve the active locale's translation for a star-class. Used by the
+// stage-advance popup which fires from outside Vue setup() — components
+// call t() directly, the popup reads window.__i18n. Falls back to the
+// English STAGE_TYPES entry when i18n isn't ready / key is missing.
+export const stageTypeNameLocalised = (tier: number): string => {
+  const safeTier = Math.max(0, Math.min(STAGE_TYPES.length - 1, tier))
+  const id = STAGE_TYPE_IDS[safeTier]
+  const fallback = STAGE_TYPES[safeTier] ?? STAGE_TYPES[0]
+  const tt = (window as any).__i18n?.global?.t
+  if (typeof tt !== 'function') return fallback
+  try {
+    const key = `game.stageType.${id}`
+    const v = tt(key)
+    if (typeof v !== 'string' || v.length === 0 || v === key) return fallback
+    return v
+  } catch {
+    return fallback
+  }
+}
 
 export const UPGRADES: UpgradeDef[] = [
   { id: 'singularityCore', baseCost: 60, costGrowth: 1.55, maxLevel: 12, effectPerLevel: 0.20 },
@@ -70,7 +97,7 @@ export const UPGRADES: UpgradeDef[] = [
   }
 ]
 
-const defaultState = (): SolKeeperState => ({
+const defaultState = (): SolariancerState => ({
   heat: 0,
   starMatter: 0,
   totalHeatEarned: 0,
@@ -110,11 +137,9 @@ const defaultState = (): SolKeeperState => ({
   }
 })
 
-const loadState = (): SolKeeperState => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return defaultState()
-    const parsed = JSON.parse(raw) as Partial<SolKeeperState>
+const loadState = (): SolariancerState => {
+  return loadSection('keeper', defaultState(), (raw) => {
+    const parsed = (raw && typeof raw === 'object' ? raw : {}) as Partial<SolariancerState>
     const fallback = defaultState()
     return {
       ...fallback,
@@ -123,13 +148,19 @@ const loadState = (): SolKeeperState => {
       streak: { ...fallback.streak, ...(parsed.streak ?? {}) },
       preferences: { ...fallback.preferences, ...(parsed.preferences ?? {}) }
     }
-  } catch {
-    return defaultState()
-  }
+  })
 }
 
 // Singleton state
-const state: Ref<SolKeeperState> = ref(loadState())
+const state: Ref<SolariancerState> = ref(loadState())
+
+// If a cloud strategy hydrates after this module already loaded (offline
+// at boot, back online later) the localStorage gets fresh values but
+// `state` still holds the pre-hydrate copy. Re-read on the version bump
+// so the player's in-memory state catches up to what's now on disk.
+watch(saveDataVersion, () => {
+  state.value = loadState()
+})
 const sessionHeat: Ref<number> = ref(0)
 const isUpgradeModalOpen: Ref<boolean> = ref(false)
 const isOptionsOpen: Ref<boolean> = ref(false)
@@ -191,10 +222,7 @@ const currentStageGoal = computed(() => stageHeatGoal(state.value.stage))
 const stageJustAdvancedAt = ref(0)  // timestamp — components watch this for celebration FX
 
 const saveState = () => {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.value))
-  } catch { /* swallow */
-  }
+  saveSection('keeper', state.value)
 }
 
 const upgradeEffect = (id: UpgradeId): number => {
@@ -230,7 +258,7 @@ const noGoMultiplier = computed(() => {
 //
 // All scoped to stage 1, all keyed off `totalHeatEarned` so they melt away
 // invisibly as the player gains traction. Read by the renderer (preview /
-// arrow), the physics tick (slow-time, no-fail), and the SolKeeperGame UI
+// arrow), the physics tick (slow-time, no-fail), and the SolariancerGame UI
 // (idle hint, deferred upgrade pulse).
 
 /** Stage-1 simulation-speed multiplier. 0.6 below 200 heat, lerps back to
@@ -482,9 +510,9 @@ const fullReset = () => {
 
 const flushSave = () => saveState()
 
-const setPreference = <K extends keyof SolKeeperState['preferences']>(
+const setPreference = <K extends keyof SolariancerState['preferences']>(
   key: K,
-  value: SolKeeperState['preferences'][K]
+  value: SolariancerState['preferences'][K]
 ) => {
   state.value = {
     ...state.value,
@@ -637,7 +665,7 @@ const markTutorialAdvancedSeen = () => {
   saveState()
 }
 
-export default function useSolKeeper() {
+export default function useSolariancer() {
   return {
     state,
     sessionHeat,

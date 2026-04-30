@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import FModal from '@/components/molecules/FModal.vue'
 import useAchievements from '@/use/useAchievements'
 
@@ -7,6 +8,11 @@ const props = defineProps<{ isOpen: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const { achievements, isUnlocked, unlockedCount, totalCount, markAllSeen } = useAchievements()
+const { t } = useI18n()
+// Title + description are pulled from i18n by id — composable carries
+// only id / glyph / colors / check predicate.
+const achievementTitle = (id: string) => t(`game.achievement.${id}.title`)
+const achievementDescription = (id: string) => t(`game.achievement.${id}.description`)
 
 // Mark unseen unlocks as seen the moment the modal opens, so the trophy
 // icon's pulse can clear once the player has actually looked at the list.
@@ -19,11 +25,11 @@ watch(() => props.isOpen, (open) => {
   FModal(
     :model-value="isOpen"
     @update:model-value="(v) => !v && emit('close')"
-    title="Achievements"
+    :title="t('game.modal.achievements')"
   )
     div.flex.items-center.justify-center.gap-2.mb-3
       span.text-cyan-300.font-black.game-text(class="text-sm sm:text-base")
-        | {{ unlockedCount }} / {{ totalCount }} unlocked
+        | {{ t('game.achievement.unlockedCount', { n: unlockedCount, total: totalCount }) }}
 
     div.grid.gap-3.overflow-y-auto.ach-grid(
       class="grid-cols-2 sm:grid-cols-3 md:grid-cols-4 max-h-[60vh] p-1"
@@ -137,8 +143,8 @@ watch(() => props.isOpen, (open) => {
               path(d="M-3 -3 Q-3 -10 0 -10 Q3 -10 3 -3" fill="none" stroke="#cbd5e1" stroke-width="2")
 
         //- Title + description
-        div.ach-title.game-text {{ a.title }}
-        div.ach-desc.game-text {{ a.description }}
+        div.ach-title.game-text {{ achievementTitle(a.id) }}
+        div.ach-desc.game-text {{ achievementDescription(a.id) }}
 </template>
 
 <style scoped lang="sass">

@@ -1,13 +1,23 @@
 import type { LocalStorageAccessor, SaveStrategy } from './types'
 import { isInternalKey } from './types'
+import type { LocalBackupLayer } from './LocalBackupLayer'
 
 // ─── SaveManager ───────────────────────────────────────────────────────────
 //
-// Owns the Strategy, the raw localStorage bindings, and the
-// monkey-patching that forwards writes into the strategy. One instance is
-// created at boot (`main.ts`) and held as a module-level singleton; game
-// code keeps calling plain `localStorage.setItem` unchanged — the manager
-// intercepts and forwards.
+// Owns the Strategy, the optional `LocalBackupLayer`, the raw localStorage
+// bindings, and the monkey-patching that forwards writes into the strategy.
+// One instance is created at boot (`main.ts`) and held as a module-level
+// singleton; game code keeps calling plain `localStorage.setItem` unchanged
+// — the manager intercepts and forwards.
+//
+// Boot phases (see `MOBILE_PERSISTENCE.md` Part 1):
+//   0. backupLayer.init() — probe IDB for a usable snapshot
+//   1. backupLayer.restoreInto(local) — seed missing keys from the snapshot
+//      BEFORE strategy.hydrate, so the strategy sees the IDB-restored state
+//   2. strategy.hydrate(local) — pull cloud (if reachable); merge logic
+//      decides whether IDB-restored or cloud values win
+//   3. patchLocalStorage() — game code's writes now flow through us
+//   4. backupLayer.scheduleWrite(local) — fresh snapshot for next boot
 
 export class SaveManager {
   private readonly rawSet: (key: string, value: string) => void
@@ -21,6 +31,7 @@ export class SaveManager {
 
   constructor(
     private readonly strategy: SaveStrategy,
+    private readonly backupLayer: LocalBackupLayer | null = null,
     storage: Storage = window.localStorage
   ) {
     this.storage = storage
@@ -36,40 +47,71 @@ export class SaveManager {
     return this.strategy.name
   }
 
+  /** Expose the strategy for `useSaveStatus` / debugging. */
+  get strategyRef(): SaveStrategy {
+    return this.strategy
+  }
+
   isHydrated(): boolean {
     return this.hydrated
   }
 
   /**
-   * Hydrate the local mirror from the backend, then patch
-   * `localStorage.setItem` / `removeItem` so all future writes flow
-   * through the strategy. Idempotent.
-   *
-   * MUST be awaited before the Vue app module graph loads, because
-   * many composables read `localStorage.getItem(...)` at module
-   * evaluation time.
+   * 4-phase boot. Idempotent. MUST be awaited before the Vue app module
+   * graph loads, because many composables read `localStorage.getItem(...)`
+   * at module evaluation time.
    */
   async init(): Promise<void> {
     if (this.hydrated) return
     this.mirroring = true
     try {
-      await this.strategy.hydrate(this.localAccessor())
-    } catch (e) {
-      console.warn(`[save] hydrate failed (${this.strategy.name})`, e)
+      // Phase 0 + 1 — IDB probe + restore (silently no-ops when no backup).
+      if (this.backupLayer) {
+        try {
+          await this.backupLayer.init()
+          this.backupLayer.restoreInto(this.localAccessor())
+        } catch (e) {
+          console.warn('[save] backup-layer init/restore failed', e)
+        }
+      }
+      // Phase 2 — strategy hydrate (cloud).
+      try {
+        await this.strategy.hydrate(this.localAccessor())
+      } catch (e) {
+        console.warn(`[save] hydrate failed (${this.strategy.name})`, e)
+      }
+    } finally {
+      this.mirroring = false
     }
-    this.mirroring = false
+    // Phase 3 — patch.
     this.patchLocalStorage()
     this.hydrated = true
+    // Phase 4 — fire-and-forget snapshot of the post-hydrate state so the
+    // NEXT boot has fresh data even if the strategy never touches IDB again.
+    if (this.backupLayer) {
+      this.backupLayer.scheduleWrite(this.localAccessor())
+    }
   }
 
   /** Flush any pending writes. Best-effort — safe to await on unload. */
   async flush(): Promise<void> {
-    await this.strategy.flush?.()
+    const local = this.localAccessor()
+    await Promise.allSettled([
+      this.strategy.flush?.() ?? Promise.resolve(),
+      this.backupLayer?.flush(local) ?? Promise.resolve()
+    ])
   }
 
-  /** Release timers / listeners held by the strategy. */
+  /** Release timers / listeners held by the strategy and backup layer. */
   dispose(): void {
-    this.strategy.dispose?.()
+    try {
+      this.strategy.dispose?.()
+    } catch { /* ignore */
+    }
+    try {
+      this.backupLayer?.dispose()
+    } catch { /* ignore */
+    }
   }
 
   // ─── internals ──────────────────────────────────────────────────────────
@@ -102,6 +144,8 @@ export class SaveManager {
       } catch (e) {
         console.warn(`[save] onLocalSet("${key}") threw`, e)
       }
+      // Mirror to IDB on every game-state write (debounced inside).
+      this.backupLayer?.scheduleWrite(this.localAccessor())
     }
 
     this.storage.removeItem = (key: string) => {
@@ -112,6 +156,7 @@ export class SaveManager {
       } catch (e) {
         console.warn(`[save] onLocalRemove("${key}") threw`, e)
       }
+      this.backupLayer?.scheduleWrite(this.localAccessor())
     }
 
     // `clear()` is rarely used by the game but keeping the mirror honest
@@ -131,6 +176,7 @@ export class SaveManager {
           console.warn(`[save] onLocalRemove (clear) threw`, e)
         }
       }
+      this.backupLayer?.scheduleWrite(this.localAccessor())
     }
   }
 }

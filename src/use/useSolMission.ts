@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import useSolKeeper from '@/use/useSolKeeper'
+import useSolariancer from '@/use/useSolariancer'
 import { tutorialMode, bodies } from '@/use/useGravityPhysics'
 
 // ─── Mission system ────────────────────────────────────────────────────────
@@ -19,16 +19,17 @@ const MISSION_GOAL_PER_COSMIC_LEVEL = 250
 
 export interface MissionReward {
   id: 'heat' | 'matter' | 'boost' | 'combo' | 'ripe'
-  title: string
-  description: string
 }
 
+// Reward catalogue is now pure id list — title + description live in the
+// locale files under `game.mission.reward.<id>.{title,description}` so the
+// modal that renders them stays language-aware.
 const REWARD_POOL: MissionReward[] = [
-  { id: 'heat', title: '+1000 Heat', description: 'Instant heat injection.' },
-  { id: 'matter', title: '+5 ✦ Star Matter', description: 'Stack toward Cosmic Forge.' },
-  { id: 'boost', title: '×2 Heat for 60s', description: 'Every payout doubled.' },
-  { id: 'combo', title: '×3 Combo for 30s', description: 'Skip the chain — straight to ×3.' },
-  { id: 'ripe', title: 'Ripen All', description: 'Every body in zone is instantly ripe.' }
+  { id: 'heat' },
+  { id: 'matter' },
+  { id: 'boost' },
+  { id: 'combo' },
+  { id: 'ripe' }
 ]
 
 // ─── State ─────────────────────────────────────────────────────────────────
@@ -47,7 +48,7 @@ const missionTimeLeft = ref(0)
 
 const missionEarned = computed(() => {
   if (!missionActive.value && !missionAchieved.value) return 0
-  const sk = useSolKeeper()
+  const sk = useSolariancer()
   return Math.max(0, sk.state.value.heat - missionHeatStart.value)
 })
 
@@ -58,7 +59,7 @@ const missionProgress = computed(() => {
 
 // ─── Goal scaling ──────────────────────────────────────────────────────────
 const computeGoal = (): number => {
-  const sk = useSolKeeper()
+  const sk = useSolariancer()
   const stage = sk.state.value.stage
   const fusionLvl = sk.state.value.upgrades.fusionStabilizer ?? 0
   const cosmicLvl = sk.state.value.upgrades.cosmicForge ?? 0
@@ -73,7 +74,7 @@ const computeGoal = (): number => {
 // ─── Lifecycle ─────────────────────────────────────────────────────────────
 const startMission = () => {
   if (missionActive.value || missionAchieved.value) return
-  const sk = useSolKeeper()
+  const sk = useSolariancer()
   missionActive.value = true
   missionAchieved.value = false
   missionStartedAtMs.value = performance.now()
@@ -91,12 +92,14 @@ const succeedMission = () => {
   missionActive.value = false
   missionAchieved.value = true
   // Pick 3 distinct rewards from the pool. Different every time.
+  // Take a fresh copy so the shuffle doesn't mutate the catalogue. Three
+  // distinct rewards keeps the modal a real choice every time.
   const shuffled = [...REWARD_POOL].sort(() => Math.random() - 0.5)
   missionRewards.value = shuffled.slice(0, 3)
 }
 
 const claimReward = (reward: MissionReward) => {
-  const sk = useSolKeeper()
+  const sk = useSolariancer()
   switch (reward.id) {
     case 'heat':
       sk.addHeat(1000)
@@ -132,7 +135,7 @@ const claimReward = (reward: MissionReward) => {
 const tick = (_dt: number) => {
   if (tutorialMode.value) return  // tutorial is sacred — no missions
   const now = performance.now()
-  const sk = useSolKeeper()
+  const sk = useSolariancer()
 
   if (missionActive.value) {
     const elapsed = (now - missionStartedAtMs.value) / 1000

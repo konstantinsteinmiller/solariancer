@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import type { Ref } from 'vue'
-import type { BodyKind, CelestialBody, Particle, ScorePopup } from '@/types/solkeeper'
-import useSolKeeper from '@/use/useSolKeeper'
+import type { BodyKind, CelestialBody, Particle, ScorePopup } from '@/types/Solariancer'
+import useSolariancer, { stageTypeNameLocalised } from '@/use/useSolariancer'
 import useSounds from '@/use/useSound'
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -518,6 +518,28 @@ export const spawnPopup = (x: number, y: number, text: string, color: string, si
   })
 }
 
+// Localised popup text. Composables run outside Vue setup() so we read the
+// active i18n instance off the window handle main.ts installs.
+//
+// Three failure modes the fallback covers:
+//   1. boot race — i18n not yet bound to window.
+//   2. exception — t() throws on bad params.
+//   3. missing key — vue-i18n's default behaviour is to *return the key
+//      string* when the lookup misses, so a check for `v === key`
+//      catches that and fires the English fallback.
+export const popupT = (key: string, fallback: string, params?: Record<string, unknown>): string => {
+  const tt = (window as any).__i18n?.global?.t
+  if (typeof tt !== 'function') return fallback
+  try {
+    const v = params ? tt(key, params) : tt(key)
+    if (typeof v !== 'string' || v.length === 0) return fallback
+    if (v === key) return fallback   // missing key — use the English fallback
+    return v
+  } catch {
+    return fallback
+  }
+}
+
 const triggerExplosion = (x: number, y: number, hueA: number, hueB: number, magnitude: number) => {
   spawnParticles(x, y, 14 + (isFirefox ? 0 : 6), hueA, 220 * magnitude, 4, 0.8)
   spawnParticles(x, y, 8, hueB, 140 * magnitude, 3, 0.6)
@@ -592,7 +614,7 @@ const syncProbes = (smallCount: number, bigCount: number) => {
 
 // ─── Physics integration ───────────────────────────────────────────────────
 
-const sk = useSolKeeper()
+const sk = useSolariancer()
 
 const computeSunRadius = () => SUN_BASE_RADIUS * worldScale.value
 
@@ -693,7 +715,7 @@ const physicsStep = (dt: number) => {
         b.bouncesLeft -= 1
         b.fxFlash = 1
         sunShieldFlash.value = 1
-        spawnPopup(b.x, b.y, 'BOUNCE', '#9ee6ff', 16)
+        spawnPopup(b.x, b.y, popupT('game.popup.bounce', 'BOUNCE'), '#9ee6ff', 16)
         spawnParticles(b.x, b.y, 6, 200, 140, 2.5, 0.5)
         try {
           useSounds().playSound('clash-' + (1 + Math.floor(Math.random() * 5)), 0.04)
@@ -716,7 +738,7 @@ const physicsStep = (dt: number) => {
         sk.lastEarnedSplash.value = { amount: award, at: performance.now() }
       }
       const popupColor = isRipe ? '#ffd14a' : '#ff7e5f'
-      const popupText = isRipe ? `+${Math.round(award)}` : 'WASTED'
+      const popupText = isRipe ? `+${Math.round(award)}` : popupT('game.popup.wasted', 'WASTED')
       spawnPopup(b.x, b.y, popupText, popupColor, isRipe ? 28 : 18)
       triggerExplosion(b.x, b.y, 30, b.hue, isRipe ? 1.4 : 0.6)
       if (isRipe) {
@@ -729,12 +751,16 @@ const physicsStep = (dt: number) => {
           // to flip the persisted flag in the same call). Subsequent
           // combo crossings use the regular popup.
           if (wasFirstCombo && result.rolledThreshold >= 3) {
-            spawnPopup(b.x, b.y - 32, `COMBO ×${result.rolledThreshold}!`, '#ffe8a0', 56)
-            spawnPopup(b.x, b.y - 80, '+5 BP XP', '#ffd14a', 30)
+            spawnPopup(b.x, b.y - 32,
+              popupT('game.popup.comboMult', `COMBO ×${result.rolledThreshold}!`, { n: result.rolledThreshold }),
+              '#ffe8a0', 56)
+            spawnPopup(b.x, b.y - 80, popupT('game.popup.bpXp', '+5 BP XP', { n: 5 }), '#ffd14a', 30)
             screenShake.value = Math.max(screenShake.value, 14)
             flashIntensity.value = Math.min(1, flashIntensity.value + 0.4)
           } else {
-            spawnPopup(b.x, b.y - 32, `COMBO ×${result.rolledThreshold}!`, '#ffe8a0', 28)
+            spawnPopup(b.x, b.y - 32,
+              popupT('game.popup.comboMult', `COMBO ×${result.rolledThreshold}!`, { n: result.rolledThreshold }),
+              '#ffe8a0', 28)
           }
         }
       }
@@ -811,7 +837,7 @@ const physicsStep = (dt: number) => {
       const eventHorizon = 28 * worldScale.value + b.radius * 0.5
       if (bhd2raw < eventHorizon * eventHorizon) {
         sk.addStarMatter(1)
-        spawnPopup(b.x, b.y, '+✦ matter', '#c8a8ff', 22)
+        spawnPopup(b.x, b.y, popupT('game.popup.matterGain', '+✦ matter'), '#c8a8ff', 22)
         spawnParticles(b.x, b.y, 14, 280, 200, 3, 0.6)
         flashIntensity.value = Math.min(1, flashIntensity.value + 0.25)
         b.dead = true
@@ -893,7 +919,7 @@ const physicsStep = (dt: number) => {
           captured.vx = (ldx / ld) * PROBE_LAUNCH_SPEED
           captured.vy = (ldy / ld) * PROBE_LAUNCH_SPEED
           probe.capturedId = null
-          spawnPopup(captured.x, captured.y - captured.radius * 2.2, 'LAUNCHED!', '#9eddff', 18)
+          spawnPopup(captured.x, captured.y - captured.radius * 2.2, popupT('game.popup.launched', 'LAUNCHED!'), '#9eddff', 18)
           spawnParticles(probeX, probeY, 10, 200, 220, 3, 0.55)
           continue
         }
@@ -997,7 +1023,9 @@ const physicsStep = (dt: number) => {
         sk.addStarMatter(1)
         sk.lastEarnedSplash.value = { amount: heatReward, at: performance.now() }
         sk.registerCometCaught()
-        spawnPopup(b.x, b.y - b.radius * 2.2, `COMET! +${Math.round(heatReward)}`, '#9eddff', 26)
+        spawnPopup(b.x, b.y - b.radius * 2.2,
+          popupT('game.popup.cometCaught', `COMET! +${Math.round(heatReward)}`, { n: Math.round(heatReward) }),
+          '#9eddff', 26)
         spawnParticles(b.x, b.y, 14, 200, 220, 4, 0.7)
         flashIntensity.value = Math.min(1, flashIntensity.value + 0.4)
       }
@@ -1119,7 +1147,7 @@ const physicsStep = (dt: number) => {
               b.dead = true
               b.deathReason = 'collide'
               sk.addHeat((a.sunFeedBonus + b.sunFeedBonus) * 0.2)
-              spawnPopup(cx2, cy2, 'SHATTER!', '#ff7e5f', 22)
+              spawnPopup(cx2, cy2, popupT('game.popup.shatter', 'SHATTER!'), '#ff7e5f', 22)
               try {
                 useSounds().playSound('explosion-1', 0.07)
               } catch { /* ignore */
@@ -1242,7 +1270,13 @@ const physicsStep = (dt: number) => {
       if (!b.grabbed) inZoneCount++
       if (prevCooked < COOK_TIME && b.cookedSeconds >= COOK_TIME) {
         b.fxFlash = 1
-        spawnPopup(b.x, b.y - b.radius * 1.6, 'RIPE!', '#ffd14a', 18)
+        // Use the active locale's translation of "RIPE!" so non-English
+        // players actually read the cue. The popup fires from the physics
+        // tick (no Vue component context), so we read the i18n instance off
+        // the window handle main.ts installed.
+        const tx = (window as any).__i18n?.global?.t
+        const label = (typeof tx === 'function' ? tx('tutorial.canvas.ripeNow') : 'RIPE!') as string
+        spawnPopup(b.x, b.y - b.radius * 1.6, label || 'RIPE!', '#ffd14a', 18)
       }
     } else {
       b.cookedSeconds = Math.max(0, b.cookedSeconds - dt * 1.5)
@@ -1356,8 +1390,13 @@ const physicsStep = (dt: number) => {
     lastFiredStageAdvanceAt = sk.stageJustAdvancedAt.value
     const cxr = worldCenterX.value
     const cyr = worldCenterY.value
-    spawnPopup(cxr, cyr - 90, `STAGE ${sk.state.value.stage}!`, '#ffd14a', 36)
-    spawnPopup(cxr, cyr - 50, sk.stageTypeName.value, '#ffe8a0', 22)
+    spawnPopup(cxr, cyr - 90,
+      popupT('game.popup.stage', `STAGE ${sk.state.value.stage}!`, { n: sk.state.value.stage }),
+      '#ffd14a', 36)
+    // Localised star-class name; falls back to the English STAGE_TYPES entry
+    // when the i18n bundle hasn't bound yet.
+    const localisedClass = stageTypeNameLocalised(sk.sunSkinTier.value)
+    spawnPopup(cxr, cyr - 50, localisedClass, '#ffe8a0', 22)
     spawnParticles(cxr, cyr, 36, 60, 320, 5, 1.2)
     spawnParticles(cxr, cyr, 18, 220, 220, 4, 0.8)
     flashIntensity.value = Math.min(1, flashIntensity.value + 0.7)
@@ -1551,7 +1590,7 @@ const spawnAt = (
 
 // One-shot slow-mo target: the first 3+ combo plays a quick 600ms
 // dilation on top of any active stage-1 slow-time. Reads slowMoUntil from
-// useSolKeeper; the SOLO_MO_FACTOR was chosen to feel "punctuation" but
+// useSolariancer; the SOLO_MO_FACTOR was chosen to feel "punctuation" but
 // not lose responsiveness — too low and the input lag becomes obvious.
 const SLOW_MO_FACTOR = 0.4
 
@@ -1572,7 +1611,7 @@ const tick = (dt: number) => {
     // happens.")
     driveSpawning(Math.min(0.05, dt))
   } catch (e) {
-    console.error('[sol-keeper physics]', e)
+    console.error('[solariancer physics]', e)
   }
 }
 
