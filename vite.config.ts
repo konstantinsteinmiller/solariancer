@@ -67,10 +67,19 @@ export default defineConfig(({ mode, command }) => {
     'https://*.itch.io',
     'https://glitch.fun',
     'https://*.glitch.fun',
+
+    /* START GD */
     'https://gamedistribution.com',
     'https://*.gamedistribution.com',
+    /* END GD */
+
+    /* START Y8 */
     'https://y8.com',
     'https://*.y8.com',
+    'https://*.4fun.com',
+    'https://*.ready2play.net',
+    /* END Y8 */
+
     'https://www.clarity.ms',
     'https://api.jsonbin.io'
   ]

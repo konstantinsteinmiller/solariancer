@@ -9,7 +9,7 @@ import { windowWidth, windowHeight } from '@/use/useUser'
 import useAssets from '@/use/useAssets'
 import FLogoProgress from '@/components/atoms/FLogoProgress.vue'
 import { useCrazyMuteSync } from '@/use/useCrazyMuteSync'
-import { isCrazyWeb, isWaveDash, isItch, isGlitch, orientation } from '@/use/useUser'
+import { isCrazyWeb, isWaveDash, isItch, isY8, isGlitch, orientation } from '@/use/useUser'
 import { glitchLicenseStatus } from '@/use/useGlitchLicense'
 
 const { t } = useI18n()
@@ -102,6 +102,7 @@ const hostname = window.location.hostname
 const isCrazyGamesUrl = () => hostname.includes('crazygames')
 const isWaveDashUrl = () => hostname.includes('wavedash')
 const isItchUrl = () => hostname.includes('itch') || hostname.includes('itch.io') || hostname.includes('itch.zone')
+const isY8Url = () => hostname.includes('y8.com') || hostname.includes('4fun.com') || hostname.includes('ready2play.net')
 const isGlitchUrl = () => {
   if (hostname.includes('glitch.fun')) return true
   // Glitch hosts the game bundle on a CDN and embeds it in an iframe whose
@@ -115,6 +116,7 @@ const isNotPlattformBuild = !isCrazyWeb && !isWaveDash && !isItch && !isGlitch
 const allowedToShowOnCrazyGames = computed(() => (isCrazyWeb && isCrazyGamesUrl()) || isNotPlattformBuild)
 const allowedToShowOnWaveDash = computed(() => (isWaveDash && isWaveDashUrl()) || isNotPlattformBuild)
 const allowedToShowOnItch = computed(() => (isItch && isItchUrl()) || isNotPlattformBuild)
+const allowedToShowOnY8 = computed(() => (isY8 && isY8Url()) || isNotPlattformBuild)
 const allowedToShowOnGlitch = computed(() =>
   (isGlitch && isGlitchUrl() && glitchLicenseStatus.value === 'ok') || isNotPlattformBuild
 )
@@ -122,16 +124,16 @@ const isGlitchDenied = computed(() => isGlitch && glitchLicenseStatus.value === 
 </script>
 
 <template lang="pug">
-  div(v-if="allowedToShowOnCrazyGames || allowedToShowOnWaveDash || allowedToShowOnItch || allowedToShowOnGlitch" id="app-root" class="h-screen h-dvh w-screen app-container root-protection game-ui-immune")
+  div(v-if="allowedToShowOnCrazyGames || allowedToShowOnWaveDash || allowedToShowOnItch || allowedToShowOnGlitch || allowedToShowOnY8" id="app-root" class="h-screen h-dvh w-screen app-container root-protection game-ui-immune")
     FLogoProgress
     RouterView
 
   div.relative.w-full.h-full(v-else-if="isGlitchDenied")
     h1.absolute.text-red-500(class="left-1/2 -translate-x-[50%] top-1/2 -translate-y-[50%] text-3xl") Access Denied: Please purchase a license.
 
-  div.relative.w-full.h-full(v-else-if="(isCrazyWeb || isWaveDash || isItch || isGlitch) && glitchLicenseStatus !== 'pending'")
+  div.relative.w-full.h-full(v-else-if="(isCrazyWeb || isWaveDash || isItch || isGlitch || isY8) && glitchLicenseStatus !== 'pending'")
     h1.absolute(class="left-1/2 -translate-x-[50%] top-1/2 -translate-y-[50%] text-3xl") {{ t('crazyGamesOnly') }}
-      span.ml-2.text-amber-500 {{ isWaveDash ? 'wavedash.com':  isCrazyWeb ? 'crazygames.com' : isItch ? 'itch.io' : isGlitch ? 'glitch.fun': ''}}
+      span.ml-2.text-amber-500 {{ isWaveDash ? 'wavedash.com':  isCrazyWeb ? 'crazygames.com' : isItch ? 'itch.io' : isGlitch ? 'glitch.fun': isY8 ? 'y8.com': ''}}
 </template>
 
 <style lang="sass">
